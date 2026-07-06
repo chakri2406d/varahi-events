@@ -1,0 +1,272 @@
+import { useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { useNavigate } from 'react-router-dom'
+import { Calendar, MapPin, FileText, Zap, CheckCircle } from 'lucide-react'
+import { useAuth } from '../../context/AuthContext'
+import { createBooking } from '../../firebase/firestore'
+import { ADDONS } from '../../utils/constants'
+import { generateBookingId } from '../../utils/dateUtils'
+import PaymentSection from './PaymentSection'
+import toast from 'react-hot-toast'
+
+const STEPS = ['Details', 'Add-ons', 'Request', 'Payment']
+
+export default function BookingFlow({ selectedMachines, onBack }) {
+  const { user } = useAuth()
+  const navigate  = useNavigate()
+
+  const [step,        setStep]        = useState(0)
+  const [requesting,  setRequesting]  = useState(false)
+  const [bookingId,   setBookingId]   = useState(null)
+  const [form, setForm] = useState({
+    eventDate:     '',
+    eventLocation: '',
+    notes:         '',
+    addons:        [],
+  })
+
+  const machines = Object.values(selectedMachines)
+
+  // ── Step 0: Event details ──────────────────────────────────────────────────
+  const renderDetails = () => (
+    <motion.div key="details" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+      <h3 className="text-white font-semibold text-lg mb-5">Event Details</h3>
+
+      {/* Selected machines summary */}
+      <div className="mb-5 p-4 rounded-xl bg-brand-bg border border-brand-border">
+        <p className="text-xs text-brand-muted uppercase tracking-wider mb-3">Selected Equipment</p>
+        {machines.map(m => (
+          <div key={m.id} className="flex items-center justify-between py-1.5">
+            <span className="text-white text-sm">{m.name}</span>
+            <span className="badge-violet text-xs">×{m.qty}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Date */}
+      <div className="mb-4">
+        <label className="label-dark"><Calendar size={12} className="inline mr-1" />Event Date</label>
+        <input
+          type="date"
+          className="input-dark"
+          min={new Date().toISOString().split('T')[0]}
+          value={form.eventDate}
+          onChange={e => setForm(f => ({ ...f, eventDate: e.target.value }))}
+        />
+      </div>
+
+      {/* Location */}
+      <div className="mb-4">
+        <label className="label-dark"><MapPin size={12} className="inline mr-1" />Event Location</label>
+        <input
+          type="text"
+          className="input-dark"
+          placeholder="e.g. Vijayawada, Banquet Hall Name"
+          value={form.eventLocation}
+          onChange={e => setForm(f => ({ ...f, eventLocation: e.target.value }))}
+        />
+      </div>
+
+      {/* Notes */}
+      <div className="mb-5">
+        <label className="label-dark"><FileText size={12} className="inline mr-1" />Additional Notes</label>
+        <textarea
+          className="input-dark resize-none"
+          rows={3}
+          placeholder="Any special requirements, timing, access details..."
+          value={form.notes}
+          onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+        />
+      </div>
+
+      <button
+        onClick={() => {
+          if (!form.eventDate)     return toast.error('Please select an event date')
+          if (!form.eventLocation) return toast.error('Please enter event location')
+          setStep(1)
+        }}
+        className="btn-primary w-full justify-center"
+      >
+        Continue to Add-ons →
+      </button>
+    </motion.div>
+  )
+
+  // ── Step 1: Add-ons ────────────────────────────────────────────────────────
+  const renderAddons = () => (
+    <motion.div key="addons" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+      <h3 className="text-white font-semibold text-lg mb-2">Select Add-ons</h3>
+      <p className="text-brand-muted text-sm mb-5">Optional services to enhance your event setup</p>
+
+      <div className="grid grid-cols-2 gap-3 mb-6">
+        {ADDONS.map(addon => {
+          const active = form.addons.includes(addon.id)
+          return (
+            <button
+              key={addon.id}
+              onClick={() => setForm(f => ({
+                ...f,
+                addons: active
+                  ? f.addons.filter(a => a !== addon.id)
+                  : [...f.addons, addon.id],
+              }))}
+              className={`p-4 rounded-xl border text-left transition-all duration-200 ${
+                active
+                  ? 'border-brand-violet/60 bg-brand-violet/15 shadow-glow-v'
+                  : 'border-brand-border bg-brand-bg hover:border-brand-violet/30'
+              }`}
+            >
+              <div className="text-2xl mb-2">{addon.icon}</div>
+              <p className={`font-semibold text-sm ${active ? 'text-white' : 'text-brand-muted'}`}>{addon.label}</p>
+              <p className="text-brand-muted text-xs mt-0.5">{addon.desc}</p>
+              {active && <CheckCircle size={14} className="text-brand-violet mt-2" />}
+            </button>
+          )
+        })}
+      </div>
+
+      <div className="flex gap-3">
+        <button onClick={() => setStep(0)} className="btn-secondary flex-1 justify-center">← Back</button>
+        <button onClick={() => setStep(2)} className="btn-primary flex-1 justify-center">Request Booking →</button>
+      </div>
+    </motion.div>
+  )
+
+  // ── Step 2: Requesting animation ──────────────────────────────────────────
+  const handleRequest = async () => {
+    if (!user) { toast.error('Please login first'); return }
+    setRequesting(true)
+
+    try {
+      // Simulate 2.5s cinematic loading
+      await new Promise(r => setTimeout(r, 2500))
+
+      const bid = generateBookingId()
+      const id  = await createBooking({
+        bookingId:     bid,
+        userId:        user.uid,
+        customerName:  user.displayName || '',
+        customerEmail: user.email || '',
+        customerPhone: '',
+        machines:      machines.map(m => ({ id: m.id, name: m.name, qty: m.qty })),
+        addons:        form.addons,
+        eventDate:     form.eventDate,
+        eventLocation: form.eventLocation,
+        notes:         form.notes,
+        totalAmount:   null, // set by admin
+        paymentVerified: false,
+      })
+
+      setBookingId(id)
+      setStep(3)
+    } catch (err) {
+      toast.error('Failed to create booking. Try again.')
+      setRequesting(false)
+    }
+  }
+
+  const renderRequesting = () => (
+    <motion.div
+      key="requesting"
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="text-center py-8"
+    >
+      {!requesting ? (
+        <>
+          <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-brand-violet/20 border border-brand-violet/30 flex items-center justify-center">
+            <Zap size={32} className="text-brand-violet" />
+          </div>
+          <h3 className="text-white font-bold text-xl mb-2">Almost There!</h3>
+          <p className="text-brand-muted text-sm mb-2">
+            <strong className="text-white">{form.eventDate}</strong> · {form.eventLocation}
+          </p>
+          <p className="text-brand-muted text-xs mb-6 max-w-xs mx-auto">
+            Clicking below will temporarily hold this slot for 30 minutes while you complete payment.
+          </p>
+          <div className="flex gap-3">
+            <button onClick={() => setStep(1)} className="btn-secondary flex-1 justify-center">← Back</button>
+            <button onClick={handleRequest}    className="btn-primary  flex-1 justify-center">
+              <Zap size={16} />
+              Request Slot
+            </button>
+          </div>
+        </>
+      ) : (
+        <div className="py-4">
+          {/* Cinematic requesting animation */}
+          <div className="relative w-24 h-24 mx-auto mb-6">
+            <motion.div
+              className="absolute inset-0 rounded-full border-2 border-brand-violet/30"
+              animate={{ scale: [1, 1.3, 1], opacity: [0.5, 0, 0.5] }}
+              transition={{ duration: 1.5, repeat: Infinity }}
+            />
+            <motion.div
+              className="absolute inset-2 rounded-full border-2 border-brand-pink/40"
+              animate={{ scale: [1, 1.2, 1], opacity: [0.4, 0, 0.4] }}
+              transition={{ duration: 1.5, repeat: Infinity, delay: 0.3 }}
+            />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <motion.div
+                className="w-10 h-10 border-2 border-brand-violet border-t-transparent rounded-full"
+                animate={{ rotate: 360 }}
+                transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+              />
+            </div>
+          </div>
+
+          <motion.p
+            className="text-white font-semibold text-lg mb-1"
+            animate={{ opacity: [0.5, 1, 0.5] }}
+            transition={{ duration: 1.5, repeat: Infinity }}
+          >
+            Requesting Slot Availability…
+          </motion.p>
+          <p className="text-brand-muted text-sm">Checking dates · Holding your slot · Processing</p>
+
+          {/* Animated dots */}
+          <div className="flex justify-center gap-2 mt-4">
+            {[0, 1, 2].map(i => (
+              <motion.div
+                key={i}
+                className="w-2 h-2 rounded-full bg-brand-violet"
+                animate={{ scale: [0.8, 1.3, 0.8], opacity: [0.4, 1, 0.4] }}
+                transition={{ duration: 1, repeat: Infinity, delay: i * 0.25 }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </motion.div>
+  )
+
+  return (
+    <div>
+      {/* Step indicator */}
+      {step < 3 && (
+        <div className="flex items-center gap-2 mb-6">
+          {STEPS.slice(0, 3).map((s, i) => (
+            <div key={s} className="flex items-center gap-2 flex-1">
+              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                i < step  ? 'bg-brand-violet text-white' :
+                i === step ? 'bg-brand-violet/30 border border-brand-violet text-brand-violetL' :
+                'bg-brand-bg border border-brand-border text-brand-muted'
+              }`}>
+                {i < step ? '✓' : i + 1}
+              </div>
+              <span className={`text-xs font-medium ${i === step ? 'text-white' : 'text-brand-muted'}`}>{s}</span>
+              {i < STEPS.length - 2 && <div className="flex-1 h-px bg-brand-border" />}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <AnimatePresence mode="wait">
+        {step === 0 && renderDetails()}
+        {step === 1 && renderAddons()}
+        {step === 2 && renderRequesting()}
+        {step === 3 && <PaymentSection key="payment" bookingId={bookingId} />}
+      </AnimatePresence>
+    </div>
+  )
+}
