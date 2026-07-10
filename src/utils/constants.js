@@ -80,10 +80,12 @@ export const EXPENSE_CATEGORIES = [
 export const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL || 'admin@varahievents.com'
 
 export const BUSINESS_INFO = {
-  name:    'Varahi Events',
-  tagline: 'Turning Events Into Experiences',
-  phone:   '+91 XXXXXXXXXX',
-  email:   'contact@varahievents.com',
-  city:    'Vijayawada, Andhra Pradesh',
-  upiId:   'varahievents@upi',
+  name:     'Varahi Events',
+  tagline:  'Turning Events Into Experiences',
+  phone:    '+91 79890 50925',
+  phone2:   '+91 93811 56538',
+  whatsapp: '917989050925', // primary number for wa.me links (no + or spaces)
+  email:    'contact@varahievents.com',
+  city:     'Hyderabad, Telangana',
+  upiId:    'varahievents@upi',
 }

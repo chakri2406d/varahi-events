@@ -72,7 +72,7 @@ function EventCard({ event, delay }) {
 
 // Fallback demo events if Firebase has none
 const DEMO_EVENTS = [
-  { id: '1', name: 'Grand Wedding Reception', location: 'Vijayawada, AP', date: new Date(Date.now() + 2*86400000).toISOString(), category: 'wedding', machines: ['CO2 Blaster x2', 'Stage Lighting', 'Full Setup'] },
+  { id: '1', name: 'Grand Wedding Reception', location: 'Hyderabad, TS', date: new Date(Date.now() + 2*86400000).toISOString(), category: 'wedding', machines: ['CO2 Blaster x2', 'Stage Lighting', 'Full Setup'] },
   { id: '2', name: 'DJ Night — Club Pulse',   location: 'Hyderabad, TS',  date: new Date(Date.now() + 5*86400000).toISOString(), category: 'dj',      machines: ['CO2 Blaster x1', 'Smoke Machine', 'Operator'] },
   { id: '3', name: 'Annual College Fest',      location: 'Guntur, AP',     date: new Date(Date.now() + 8*86400000).toISOString(), category: 'college', machines: ['Stage Lighting', 'Generator', 'CO2 Blaster x3'] },
 ]

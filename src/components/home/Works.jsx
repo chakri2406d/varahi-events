@@ -5,15 +5,15 @@ import { EVENT_CATEGORIES } from '../../utils/constants'
 
 // Mock gallery items — replace with real Firebase data
 const GALLERY_ITEMS = [
-  { id: 1, cat: 'wedding',   title: 'Grand Wedding Entry',         loc: 'Vijayawada', span: 'col-span-2 row-span-2', color: '#7C3AED', emoji: '💍' },
+  { id: 1, cat: 'wedding',   title: 'Grand Wedding Entry',         loc: 'Hyderabad', span: 'col-span-2 row-span-2', color: '#7C3AED', emoji: '💍' },
   { id: 2, cat: 'dj',        title: 'DJ Night — XYZ Club',         loc: 'Hyderabad',  span: '',                      color: '#EC4899', emoji: '🎧' },
   { id: 3, cat: 'concert',   title: 'Open-Air Concert',            loc: 'Guntur',     span: '',                      color: '#F59E0B', emoji: '🎤' },
-  { id: 4, cat: 'college',   title: 'Annual College Fest',         loc: 'Vijayawada', span: 'row-span-2',            color: '#06B6D4', emoji: '🎓' },
+  { id: 4, cat: 'college',   title: 'Annual College Fest',         loc: 'Hyderabad', span: 'row-span-2',            color: '#06B6D4', emoji: '🎓' },
   { id: 5, cat: 'corporate', title: 'Corporate Launch Event',      loc: 'Amaravati',  span: '',                      color: '#10B981', emoji: '🏢' },
   { id: 6, cat: 'wedding',   title: 'CO₂ Blast Wedding Night',     loc: 'Rajahmundry',span: '',                      color: '#8B5CF6', emoji: '💨' },
   { id: 7, cat: 'dj',        title: 'New Year DJ Bash',            loc: 'Hyderabad',  span: 'col-span-2',            color: '#F43F5E', emoji: '🎊' },
   { id: 8, cat: 'concert',   title: 'Folk Concert',                loc: 'Nellore',    span: '',                      color: '#F59E0B', emoji: '🎵' },
-  { id: 9, cat: 'college',   title: 'Tech Fest Stage Setup',       loc: 'Vijayawada', span: '',                      color: '#6366F1', emoji: '⚡' },
+  { id: 9, cat: 'college',   title: 'Tech Fest Stage Setup',       loc: 'Hyderabad', span: '',                      color: '#6366F1', emoji: '⚡' },
 ]
 
 function WorkCard({ item, delay }) {

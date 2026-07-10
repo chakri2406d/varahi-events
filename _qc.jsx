@@ -135,37 +135,4 @@ export default function QrScanner() {
         </div>
 
         {/* Errors */}
-        {error && (
-          <p className="text-xs mt-3 text-center" style={{ color:'#fca5a5' }}>{error}</p>
-        )}
-
-        {/* Scan result */}
-        {result && (
-          <motion.div initial={{ opacity:0, y:8 }} animate={{ opacity:1, y:0 }}
-            className="mt-4 rounded-xl p-4 flex items-start gap-3"
-            style={{
-              background: result.ok ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
-              border: `1px solid ${result.ok ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}`,
-            }}>
-            {result.ok
-              ? <CheckCircle size={18} style={{ color:'#86efac', flexShrink:0, marginTop:1 }}/>
-              : <XCircle size={18} style={{ color:'#fca5a5', flexShrink:0, marginTop:1 }}/>}
-            <div>
-              <p className="text-sm font-semibold" style={{ color: result.ok ? '#86efac' : '#fca5a5' }}>
-                {result.msg}
-              </p>
-              {result.name && <p className="text-xs mt-0.5" style={{ color:'#9C7A82' }}>{result.name}</p>}
-              {result.at && (
-                <p className="text-[11px] mt-0.5" style={{ color:'#9C7A82' }}>
-                  {new Date(result.at).toLocaleString('en-IN')}
-                </p>
-              )}
-            </div>
-          </motion.div>
-        )}
-
-        {busy && <p className="text-xs mt-3 text-center" style={{ color:'#9C7A82' }}>Processing…</p>}
-      </div>
-    </div>
-  )
-}
+     

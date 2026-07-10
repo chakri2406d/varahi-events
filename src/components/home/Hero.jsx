@@ -128,7 +128,7 @@ export default function Hero() {
           style={{ background: 'rgba(201,147,58,0.12)', border: '1px solid rgba(201,147,58,0.3)' }}
         >
           <Zap size={14} className="text-brand-gold" />
-          Premium Event Production · Andhra Pradesh
+          Premium Event Production · Hyderabad
         </motion.div>
 
         {/* Headline */}

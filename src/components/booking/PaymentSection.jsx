@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import QRCode from 'react-qr-code'
 import { Upload, CheckCircle, Copy, AlertCircle, IndianRupee } from 'lucide-react'
@@ -19,6 +19,17 @@ export default function PaymentSection({ bookingId }) {
   const [txnId,       setTxnId]       = useState('')
   const [amountPaid,  setAmountPaid]  = useState('')
   const [totalAmount, setTotalAmount] = useState(null)
+
+  // Pull the booking's total (set by admin) so we can enforce the 40% advance.
+  // Silently ignore if it isn't set yet — the check just won't apply.
+  useEffect(() => {
+    if (!bookingId) return
+    let cancelled = false
+    getBookingById(bookingId)
+      .then(b => { if (!cancelled && b?.totalAmount) setTotalAmount(Number(b.totalAmount)) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [bookingId])
 
   const upiLink = `upi://pay?pa=${BUSINESS_INFO.upiId}&pn=Varahi+Events&cu=INR`
 
@@ -287,7 +298,7 @@ export default function PaymentSection({ bookingId }) {
               <div>
                 <p className="text-white font-medium text-sm">Tap to upload screenshot</p>
                 <p className="text-xs mt-1" style={{ color: '#9C7A82' }}>
-                  PNG, JPG · Max 5MB
+                  PNG, JPG · Max 3MB
                 </p>
               </div>
             </div>

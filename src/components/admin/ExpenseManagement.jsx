@@ -66,7 +66,7 @@ export default function ExpenseManagement() {
               </div>
               <div>
                 <label className="label-dark">Description</label>
-                <input className="input-dark" value={form.description} onChange={set('description')} placeholder="e.g. Fuel for Vijayawada trip" required/>
+                <input className="input-dark" value={form.description} onChange={set('description')} placeholder="e.g. Fuel for Hyderabad trip" required/>
               </div>
               <div>
                 <label className="label-dark">Amount (₹)</label>

@@ -15,13 +15,14 @@ export default function Contact() {
     const msg = encodeURIComponent(
       `Hi Varahi Events! 🎪\n\nName: ${form.name}\nPhone: ${form.phone}\nEvent Date: ${form.eventDate}\nEvent Type: ${form.eventType}\n\nMessage: ${form.message}`
     )
-    window.open(`https://wa.me/91XXXXXXXXXX?text=${msg}`, '_blank')
+    window.open(`https://wa.me/${BUSINESS_INFO.whatsapp}?text=${msg}`, '_blank')
     setSent(true)
     toast.success('Redirecting to WhatsApp!')
   }
 
   const INFO = [
-    { icon: Phone,     label:'Call Us',    value: BUSINESS_INFO.phone,     href:`tel:${BUSINESS_INFO.phone}`,   color:'text-green-400' },
+    { icon: Phone,     label:'Call Us',    value: BUSINESS_INFO.phone,     href:`tel:${BUSINESS_INFO.phone.replace(/\s/g,'')}`,  color:'text-green-400' },
+    { icon: Phone,     label:'Call Us',    value: BUSINESS_INFO.phone2,    href:`tel:${BUSINESS_INFO.phone2.replace(/\s/g,'')}`, color:'text-green-400' },
     { icon: Mail,      label:'Email',      value: BUSINESS_INFO.email,     href:`mailto:${BUSINESS_INFO.email}`, color:'text-blue-400' },
     { icon: MapPin,    label:'Location',   value: BUSINESS_INFO.city,      href:null,                            color:'text-brand-violet' },
     { icon: Instagram, label:'Instagram',  value:'@varahievents',           href:'https://instagram.com',         color:'text-brand-pink' },
@@ -43,7 +44,7 @@ export default function Contact() {
             <div className="space-y-4 mb-8">
               {INFO.map(({ icon:Icon, label, value, href, color }, i) => (
                 <motion.div
-                  key={label}
+                  key={label + i}
                   initial={{ opacity:0, x:-20 }}
                   animate={{ opacity:1, x:0 }}
                   transition={{ delay: i*0.1 }}
@@ -79,7 +80,7 @@ export default function Contact() {
               initial={{ opacity:0, y:20 }}
               animate={{ opacity:1, y:0 }}
               transition={{ delay:0.5 }}
-              href="https://wa.me/91XXXXXXXXXX?text=Hi! I want to book equipment for my event."
+              href={`https://wa.me/${BUSINESS_INFO.whatsapp}?text=Hi! I want to book equipment for my event.`}
               target="_blank" rel="noopener noreferrer"
               className="flex items-center justify-center gap-3 w-full py-4 rounded-2xl text-white font-semibold text-base transition-all hover:scale-[1.02]"
               style={{ background:'linear-gradient(135deg, #25D366, #128C7E)' }}

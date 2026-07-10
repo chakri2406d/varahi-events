@@ -42,7 +42,7 @@ export default function CallToAction() {
               Book Equipment Now
             </Link>
             <a
-              href={`tel:${BUSINESS_INFO.phone}`}
+              href={`tel:${BUSINESS_INFO.phone.replace(/\s/g,'')}`}
               className="btn-secondary text-base px-8 py-4 w-full sm:w-auto justify-center"
             >
               <Phone size={18} />
@@ -53,7 +53,7 @@ export default function CallToAction() {
           {/* WhatsApp CTA */}
           <div className="mt-6">
             <a
-              href={`https://wa.me/91XXXXXXXXXX?text=Hi! I want to book equipment for my event.`}
+              href={`https://wa.me/${BUSINESS_INFO.whatsapp}?text=Hi! I want to book equipment for my event.`}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 text-green-400 text-sm font-medium hover:text-green-300 transition-colors"

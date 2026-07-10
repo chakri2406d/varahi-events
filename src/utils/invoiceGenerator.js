@@ -1,194 +1,268 @@
 import jsPDF from 'jspdf'
 import { format } from 'date-fns'
-import { BUSINESS_INFO, STATUS_LABELS } from './constants'
+import { BUSINESS_INFO, STATUS_LABELS, ADDONS } from './constants'
+
+/* ────────────────────────────────────────────────────────────────────────────
+   Varahi Events — professional invoice (A4, light theme, brand maroon + gold).
+   jsPDF's built-in Helvetica can't render the ₹ glyph, so currency uses "Rs.".
+──────────────────────────────────────────────────────────────────────────── */
+
+// Brand palette (RGB)
+const MAROON = [107, 15, 26]   // #6B0F1A
+const WINE   = [139, 26, 44]   // #8B1A2C
+const GOLD   = [201, 147, 58]  // #C9933A
+const INK    = [34, 30, 32]    // near-black text
+const BODY   = [90, 88, 92]    // body grey
+const MUTED  = [140, 136, 142] // labels
+const SOFT   = [248, 244, 245] // zebra / panel fill
+const LINE   = [228, 222, 224] // hairlines
+const WHITE  = [255, 255, 255]
+
+const money = (n) => `Rs. ${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+
+const safeDate = (value, fmt = 'dd MMM yyyy', fallback = '—') => {
+  if (!value) return fallback
+  const d = new Date(value)
+  return isNaN(d.getTime()) ? fallback : format(d, fmt)
+}
 
 export const generateInvoice = (booking) => {
-  const doc  = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-  const W    = 210
-  const gray = '#9CA3AF'
-  const dark = '#1a1a2e'
-  const violet = '#7C3AED'
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+  const W = 210
+  const M = 14          // left margin
+  const R = W - M       // right edge (196)
 
-  // ── BACKGROUND ──────────────────────────────────────────────────────────────
-  doc.setFillColor(5, 5, 8)
-  doc.rect(0, 0, 210, 297, 'F')
+  const fill = (c) => doc.setFillColor(c[0], c[1], c[2])
+  const text = (c) => doc.setTextColor(c[0], c[1], c[2])
+  const draw = (c) => doc.setDrawColor(c[0], c[1], c[2])
 
-  // ── HEADER BAR ──────────────────────────────────────────────────────────────
-  doc.setFillColor(13, 13, 26)
-  doc.rect(0, 0, 210, 50, 'F')
-  doc.setDrawColor(124, 58, 237)
-  doc.setLineWidth(0.5)
-  doc.line(0, 50, 210, 50)
+  let y = 0
 
-  // ── LOGO AREA ───────────────────────────────────────────────────────────────
-  doc.setFillColor(124, 58, 237)
-  doc.roundedRect(15, 10, 30, 30, 4, 4, 'F')
-  doc.setTextColor(255, 255, 255)
-  doc.setFont('helvetica', 'bold')
-  doc.setFontSize(18)
-  doc.text('VE', 30, 29, { align: 'center' })
+  const ensureSpace = (need) => {
+    if (y + need > 285) { doc.addPage(); y = 20 }
+  }
 
-  // ── COMPANY NAME ────────────────────────────────────────────────────────────
-  doc.setFontSize(20)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(241, 240, 255)
-  doc.text(BUSINESS_INFO.name, 52, 22)
-  doc.setFontSize(9)
-  doc.setFont('helvetica', 'normal')
-  doc.setTextColor(156, 163, 175)
-  doc.text(BUSINESS_INFO.tagline, 52, 30)
-  doc.text(BUSINESS_INFO.city, 52, 38)
+  /* ── DERIVE DATA ─────────────────────────────────────────────────────────── */
+  const invoiceNo = booking.invoiceNo || booking.bookingId || booking.id?.slice(0, 8).toUpperCase() || 'DRAFT'
+  const invoiceDate = safeDate(booking.createdAt?.toDate?.() || new Date(), 'dd MMM yyyy', format(new Date(), 'dd MMM yyyy'))
+  const dueDate = safeDate(booking.dueDate || booking.eventDate)
 
-  // ── INVOICE TITLE ───────────────────────────────────────────────────────────
-  doc.setFontSize(22)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(124, 58, 237)
-  doc.text('INVOICE', W - 15, 22, { align: 'right' })
-  doc.setFontSize(9)
-  doc.setTextColor(156, 163, 175)
-  doc.text(`#${booking.bookingId || booking.id?.slice(0, 8).toUpperCase()}`, W - 15, 31, { align: 'right' })
-  doc.text(format(new Date(booking.createdAt?.toDate() || new Date()), 'dd MMM yyyy'), W - 15, 39, { align: 'right' })
+  const lastMethod = Array.isArray(booking.payments) && booking.payments.length
+    ? booking.payments[booking.payments.length - 1].method
+    : (booking.onlinePaid ? 'online' : booking.cashPaid ? 'cash' : null)
+  const paymentTerms = lastMethod === 'cash' ? 'Cash' : 'Online / UPI'
 
-  // ── CUSTOMER SECTION ────────────────────────────────────────────────────────
-  let y = 65
-  doc.setFontSize(9)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(124, 58, 237)
-  doc.text('BILLED TO', 15, y)
+  // Line items — machines carry name/qty and (optionally) price. Fall back to a
+  // single "Event Services" line for walk-in / offline bookings with no machines.
+  const rawItems = Array.isArray(booking.machines) ? booking.machines : []
+  let items = rawItems.map((m) => {
+    const qty = Number(m.qty || 1)
+    const rate = m.price != null ? Number(m.price) : null
+    return { name: m.name || String(m), qty, rate, amount: rate != null ? rate * qty : null }
+  })
+  if (items.length === 0) {
+    const t = Number(booking.totalAmount || booking.amountPaid || 0)
+    items = [{ name: 'Event Services & Equipment', qty: 1, rate: t || null, amount: t || null }]
+  }
 
-  y += 7
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(241, 240, 255)
-  doc.setFontSize(12)
-  doc.text(booking.customerName || '—', 15, y)
+  const lineTotal = items.reduce((s, i) => s + (i.amount || 0), 0)
+  const total     = Number(booking.totalAmount || lineTotal || 0)
+  const subtotal  = lineTotal || total
+  const amountPaid = Number(booking.amountPaid || 0)
+  const balanceDue = Math.max(0, total - amountPaid)
 
-  y += 6
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(9)
-  doc.setTextColor(156, 163, 175)
-  doc.text(booking.customerEmail || '', 15, y)
-  doc.text(booking.customerPhone || '', 15, y + 5)
+  const addonLabels = (booking.addons || [])
+    .map((id) => ADDONS.find((a) => a.id === id)?.label || id)
 
-  // ── EVENT DETAILS ───────────────────────────────────────────────────────────
-  doc.setFontSize(9)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(124, 58, 237)
-  doc.text('EVENT DETAILS', W / 2, 65, { align: 'left' })
+  /* ── TOP ACCENT BAR ──────────────────────────────────────────────────────── */
+  fill(MAROON); doc.rect(0, 0, W, 6, 'F')
+  fill(GOLD);   doc.rect(0, 6, W, 1, 'F')
 
-  y = 72
-  const details = [
-    ['Event Date', format(new Date(booking.eventDate), 'dd MMM yyyy')],
-    ['Location',   booking.eventLocation || '—'],
-    ['Status',     STATUS_LABELS[booking.status] || booking.status],
+  /* ── HEADER ──────────────────────────────────────────────────────────────── */
+  // Logo monogram
+  fill(WINE); doc.roundedRect(M, 13, 24, 24, 3, 3, 'F')
+  draw(GOLD); doc.setLineWidth(0.6); doc.roundedRect(M, 13, 24, 24, 3, 3, 'S')
+  text(GOLD); doc.setFont('helvetica', 'bold'); doc.setFontSize(15)
+  doc.text('VE', M + 12, 26, { align: 'center' })
+  text(WHITE); doc.setFontSize(4.5); doc.setFont('helvetica', 'normal')
+  doc.text('VARAHI EVENTS', M + 12, 32, { align: 'center' })
+
+  // Company block
+  const cx = M + 30
+  text(INK); doc.setFont('helvetica', 'bold'); doc.setFontSize(16)
+  doc.text(BUSINESS_INFO.name.toUpperCase(), cx, 20)
+  text(GOLD); doc.setFont('helvetica', 'italic'); doc.setFontSize(8.5)
+  doc.text(BUSINESS_INFO.tagline, cx, 26)
+  text(MUTED); doc.setFont('helvetica', 'normal'); doc.setFontSize(8)
+  doc.text(BUSINESS_INFO.city, cx, 31)
+  doc.text(`${BUSINESS_INFO.phone}  |  ${BUSINESS_INFO.email}`, cx, 35.5)
+
+  // INVOICE title
+  text(MAROON); doc.setFont('helvetica', 'bold'); doc.setFontSize(28)
+  doc.text('INVOICE', R, 22, { align: 'right' })
+  text(MUTED); doc.setFont('helvetica', 'normal'); doc.setFontSize(10)
+  doc.text(`# ${invoiceNo}`, R, 29, { align: 'right' })
+
+  // header divider
+  draw(LINE); doc.setLineWidth(0.4); doc.line(M, 43, R, 43)
+
+  /* ── BILL TO / EVENT (left)  +  META (right) ─────────────────────────────── */
+  const topY = 52
+  // Left — Bill To
+  text(GOLD); doc.setFont('helvetica', 'bold'); doc.setFontSize(8)
+  doc.text('BILL TO', M, topY)
+  text(INK); doc.setFont('helvetica', 'bold'); doc.setFontSize(11)
+  doc.text(booking.customerName || '—', M, topY + 6)
+  text(BODY); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5)
+  let by = topY + 11
+  if (booking.customerEmail) { doc.text(booking.customerEmail, M, by); by += 4.5 }
+  if (booking.customerPhone) { doc.text(booking.customerPhone, M, by); by += 4.5 }
+
+  // Left — Event / Service location
+  const evY = topY + 24
+  text(GOLD); doc.setFont('helvetica', 'bold'); doc.setFontSize(8)
+  doc.text('EVENT / SERVICE AT', M, evY)
+  text(BODY); doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
+  doc.text(booking.eventLocation || '—', M, evY + 5.5)
+  text(MUTED); doc.setFontSize(8)
+  doc.text(`Event date: ${safeDate(booking.eventDate)}`, M, evY + 10.5)
+
+  // Right — meta panel
+  const px = 122, pw = R - px
+  fill(SOFT); doc.roundedRect(px, topY - 4, pw, 25, 2, 2, 'F')
+  const metaRows = [
+    ['Invoice Date', invoiceDate],
+    ['Payment Terms', paymentTerms],
+    ['Due Date', dueDate],
   ]
-  details.forEach(([label, val]) => {
+  let my = topY + 1
+  metaRows.forEach(([k, v]) => {
+    text(MUTED); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5)
+    doc.text(k, px + 4, my)
+    text(INK); doc.setFont('helvetica', 'bold')
+    doc.text(String(v), R - 4, my, { align: 'right' })
+    my += 6.5
+  })
+
+  // Right — balance due highlight
+  const bdY = topY + 24
+  fill(MAROON); doc.roundedRect(px, bdY, pw, 12, 2, 2, 'F')
+  text(WHITE); doc.setFont('helvetica', 'bold'); doc.setFontSize(9)
+  doc.text('BALANCE DUE', px + 4, bdY + 7.5)
+  doc.setFontSize(11)
+  doc.text(money(balanceDue), R - 4, bdY + 7.7, { align: 'right' })
+
+  /* ── ITEMS TABLE ─────────────────────────────────────────────────────────── */
+  y = 89
+  const colQty = 122, colRate = 158, colAmt = R   // right-aligned anchors
+  // header
+  fill(MAROON); doc.rect(M, y, R - M, 9, 'F')
+  text(WHITE); doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5)
+  doc.text('ITEM / DESCRIPTION', M + 3, y + 6)
+  doc.text('QTY', colQty, y + 6, { align: 'right' })
+  doc.text('RATE', colRate, y + 6, { align: 'right' })
+  doc.text('AMOUNT', colAmt - 3, y + 6, { align: 'right' })
+  y += 9
+
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5)
+  items.forEach((it, i) => {
+    ensureSpace(10)
+    const rowH = 9
+    if (i % 2 === 1) { fill(SOFT); doc.rect(M, y, R - M, rowH, 'F') }
+    text(INK)
+    const nameLines = doc.splitTextToSize(it.name, colQty - M - 8)
+    doc.text(nameLines[0], M + 3, y + 6)
+    text(BODY)
+    doc.text(String(it.qty), colQty, y + 6, { align: 'right' })
+    doc.text(it.rate != null ? money(it.rate) : '—', colRate, y + 6, { align: 'right' })
+    text(INK); doc.setFont('helvetica', 'bold')
+    doc.text(it.amount != null ? money(it.amount) : 'As quoted', colAmt - 3, y + 6, { align: 'right' })
     doc.setFont('helvetica', 'normal')
-    doc.setTextColor(156, 163, 175)
-    doc.text(label, W / 2, y)
-    doc.setTextColor(241, 240, 255)
-    doc.setFont('helvetica', 'bold')
-    doc.text(val, W - 15, y, { align: 'right' })
-    y += 7
+    y += rowH
   })
+  // table bottom border
+  draw(LINE); doc.setLineWidth(0.4); doc.line(M, y, R, y)
 
-  // ── ITEMS TABLE HEADER ───────────────────────────────────────────────────────
-  y = 110
-  doc.setFillColor(13, 13, 26)
-  doc.rect(10, y - 5, W - 20, 10, 'F')
-  doc.setFontSize(9)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(124, 58, 237)
-  doc.text('ITEM / EQUIPMENT', 15, y)
-  doc.text('QTY', 130, y, { align: 'center' })
-  doc.text('AMOUNT', W - 15, y, { align: 'right' })
-
-  // ── ITEMS ────────────────────────────────────────────────────────────────────
-  y += 10
-  doc.setFont('helvetica', 'normal')
-  doc.setTextColor(241, 240, 255)
-  doc.setFontSize(10)
-
-  const items = booking.machines || []
-  items.forEach((item, i) => {
-    if (i % 2 === 0) {
-      doc.setFillColor(13, 13, 26)
-      doc.rect(10, y - 5, W - 20, 9, 'F')
-    }
-    doc.setTextColor(241, 240, 255)
-    doc.text(item.name || item, 15, y)
-    doc.setTextColor(156, 163, 175)
-    doc.text(String(item.qty || 1), 130, y, { align: 'center' })
-    doc.setTextColor(245, 158, 11)
-    doc.text(item.price ? `₹${item.price.toLocaleString()}` : 'As quoted', W - 15, y, { align: 'right' })
-    y += 9
-  })
-
-  // Add-ons
-  const addons = booking.addons || []
-  if (addons.length > 0) {
-    y += 3
-    doc.setFontSize(8)
-    doc.setTextColor(156, 163, 175)
-    doc.text('Add-ons: ' + addons.join(', '), 15, y)
-    y += 7
+  // add-ons line
+  if (addonLabels.length) {
+    y += 6
+    text(MUTED); doc.setFont('helvetica', 'bold'); doc.setFontSize(8)
+    doc.text('ADD-ONS', M + 3, y)
+    text(BODY); doc.setFont('helvetica', 'normal')
+    const al = doc.splitTextToSize(addonLabels.join('  •  '), R - M - 30)
+    doc.text(al, M + 22, y)
+    y += al.length * 4
   }
 
-  // ── TOTALS ────────────────────────────────────────────────────────────────────
-  doc.setDrawColor(124, 58, 237)
-  doc.setLineWidth(0.3)
-  doc.line(10, y, W - 10, y)
+  /* ── TOTALS ──────────────────────────────────────────────────────────────── */
   y += 8
-
-  if (booking.totalAmount) {
-    doc.setFontSize(12)
-    doc.setFont('helvetica', 'bold')
-    doc.setTextColor(241, 240, 255)
-    doc.text('Total Amount', 15, y)
-    doc.setTextColor(124, 58, 237)
-    doc.text(`₹${booking.totalAmount.toLocaleString()}`, W - 15, y, { align: 'right' })
-    y += 8
+  const lblX = 150, valX = R - 3
+  const totalRow = (label, value, opts = {}) => {
+    doc.setFont('helvetica', opts.bold ? 'bold' : 'normal')
+    doc.setFontSize(opts.size || 9.5)
+    text(opts.color || BODY); doc.text(label, lblX, y, { align: 'right' })
+    text(opts.valColor || INK); doc.text(value, valX, y, { align: 'right' })
+    y += opts.gap || 6
+  }
+  totalRow('Subtotal', money(subtotal))
+  totalRow('Tax (0%)', money(0))
+  draw(LINE); doc.setLineWidth(0.4); doc.line(lblX - 34, y - 2, R, y - 2)
+  y += 1
+  totalRow('TOTAL', money(total), { bold: true, size: 12, color: MAROON, valColor: MAROON, gap: 7 })
+  if (amountPaid > 0) {
+    totalRow('Amount Paid', `- ${money(amountPaid)}`, { color: MUTED, valColor: BODY })
+    // balance due emphasis strip on the right
+    fill(SOFT); doc.roundedRect(lblX - 34, y - 4, R - (lblX - 34), 9, 1.5, 1.5, 'F')
+    totalRow('Balance Due', money(balanceDue), { bold: true, size: 10, color: INK, valColor: MAROON, gap: 8 })
   }
 
-  // ── PAYMENT STATUS ───────────────────────────────────────────────────────────
-  const payColor = booking.paymentVerified ? [34, 197, 94] : [245, 158, 11]
-  doc.setFillColor(...payColor)
-  doc.roundedRect(15, y, 60, 9, 2, 2, 'F')
-  doc.setFontSize(8)
-  doc.setTextColor(0, 0, 0)
-  doc.setFont('helvetica', 'bold')
-  doc.text(booking.paymentVerified ? '✓ Payment Verified' : '⏳ Payment Pending', 45, y + 5.5, { align: 'center' })
+  /* ── NOTES ───────────────────────────────────────────────────────────────── */
+  y += 2
+  ensureSpace(20)
+  fill(SOFT); doc.roundedRect(M, y, R - M, 15, 2, 2, 'F')
+  fill(GOLD); doc.rect(M, y, 1.5, 15, 'F')
+  text(MAROON); doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5)
+  doc.text('NOTES', M + 5, y + 5.5)
+  text(BODY); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5)
+  const note = booking.notes ||
+    'Full payment is mandatory before the start of the event. Services will only be executed once the payment is cleared.'
+  doc.text(doc.splitTextToSize(note, R - M - 10), M + 5, y + 10)
+  y += 19
 
-  // ── TERMS ─────────────────────────────────────────────────────────────────────
-  y = 240
-  doc.setDrawColor(30, 30, 60)
-  doc.line(10, y, W - 10, y)
-  y += 8
-  doc.setFontSize(8)
-  doc.setFont('helvetica', 'bold')
-  doc.setTextColor(124, 58, 237)
-  doc.text('TERMS & CONDITIONS', 15, y)
-  y += 6
-  doc.setFont('helvetica', 'normal')
-  doc.setTextColor(156, 163, 175)
-  doc.setFontSize(7.5)
+  /* ── TERMS & CONDITIONS ──────────────────────────────────────────────────── */
+  ensureSpace(18)
+  draw(LINE); doc.setLineWidth(0.4); doc.line(M, y, R, y); y += 5
+  text(MAROON); doc.setFont('helvetica', 'bold'); doc.setFontSize(10)
+  doc.text('Terms & Conditions', M, y); y += 5
 
   const terms = [
-    '1. Cancellation within 48 hours of event: 50% charge applies.',
-    '2. Cancellation within 24 hours: no refund.',
-    '3. Client is responsible for delays beyond agreed setup time (₹500/hr extra).',
-    '4. Varahi Events is not liable for event cancellations due to weather or force majeure.',
-    '5. Payment is due before equipment deployment. UPI transfers only.',
-    '6. Equipment damage at the event venue is billable to the client.',
-    '7. Operator assignment is subject to availability.',
+    ['Booking Confirmation', 'All bookings are confirmed only after receiving the booking amount as agreed at the time of quotation. Final confirmation will be communicated in writing (via email, WhatsApp, or signed agreement).'],
+    ['Payment Terms', 'Full payment must be completed before the event starts. Any delay in payment may result in postponement or cancellation of services without prior notice.'],
+    ['Changes to Event Plan', 'Any changes to the event setup, theme, or services must be communicated at least 5 days before the event. Additional costs may apply for last-minute changes.'],
+    ['Responsibilities & Liabilities', 'Varahi Events is not responsible for delays or cancellations caused by factors beyond our control (e.g., natural disasters, strikes, power outages). The client is responsible for providing necessary permissions, venue access, and safety measures. Damage to Varahi Events property or equipment during the event will be charged to the client.'],
+    ['Media & Promotion', 'Varahi Events reserves the right to capture photos/videos during the event for promotional purposes, unless agreed otherwise in writing.'],
+    ['Acceptance', 'By confirming the booking, the client acknowledges and agrees to the above Terms & Conditions.'],
   ]
-  terms.forEach(t => { doc.text(t, 15, y); y += 5 })
+  terms.forEach(([h, b], i) => {
+    ensureSpace(11)
+    text(INK); doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5)
+    doc.text(`${i + 1}. ${h}`, M, y); y += 4
+    text(BODY); doc.setFont('helvetica', 'normal'); doc.setFontSize(8)
+    doc.splitTextToSize(b, R - M).forEach((ln) => { ensureSpace(5); doc.text(ln, M, y); y += 3.6 })
+    y += 1.8
+  })
 
-  // ── FOOTER ────────────────────────────────────────────────────────────────────
-  doc.setFillColor(13, 13, 26)
-  doc.rect(0, 285, 210, 12, 'F')
-  doc.setFontSize(8)
-  doc.setTextColor(156, 163, 175)
-  doc.text(`${BUSINESS_INFO.name} · ${BUSINESS_INFO.email} · ${BUSINESS_INFO.phone}`, W / 2, 292, { align: 'center' })
+  /* ── FOOTER (every page) ─────────────────────────────────────────────────── */
+  const pages = doc.internal.getNumberOfPages()
+  for (let p = 1; p <= pages; p++) {
+    doc.setPage(p)
+    fill(MAROON); doc.rect(0, 289, W, 8, 'F')
+    fill(GOLD);   doc.rect(0, 288, W, 0.8, 'F')
+    text(WHITE); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5)
+    doc.text(`${BUSINESS_INFO.name}  ·  ${BUSINESS_INFO.phone}  ·  ${BUSINESS_INFO.email}`, W / 2, 294, { align: 'center' })
+    doc.setFontSize(6.5); text(GOLD)
+    doc.text('Thank you for choosing Varahi Events — Turning Events Into Experiences', W / 2, 285, { align: 'center' })
+  }
 
-  doc.save(`Varahi-Invoice-${booking.id?.slice(0, 8).toUpperCase() || 'DRAFT'}.pdf`)
+  doc.save(`Varahi-Invoice-${invoiceNo}.pdf`)
 }

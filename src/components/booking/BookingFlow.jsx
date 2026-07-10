@@ -61,7 +61,7 @@ export default function BookingFlow({ selectedMachines, onBack }) {
         <input
           type="text"
           className="input-dark"
-          placeholder="e.g. Vijayawada, Banquet Hall Name"
+          placeholder="e.g. Hyderabad, Banquet Hall Name"
           value={form.eventLocation}
           onChange={e => setForm(f => ({ ...f, eventLocation: e.target.value }))}
         />

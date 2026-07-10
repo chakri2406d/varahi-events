@@ -1,0 +1,10 @@
+import {parse} from '@babel/parser';
+import fs from 'fs';
+import {execSync} from 'child_process';
+const files = execSync('find src -name "*.jsx" -o -name "*.js"').toString().trim().split('\n');
+let errs=0;
+for(const f of files){
+  try{ parse(fs.readFileSync(f,'utf8'),{sourceType:'module',plugins:['jsx']}); }
+  catch(e){ errs++; console.log('SYNTAX ERROR: '+f+' :: '+e.message.split('\n')[0]); }
+}
+console.log(errs? `\n${errs} file(s) with syntax errors` : `All ${files.length} files parsed OK`);

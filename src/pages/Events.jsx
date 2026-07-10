@@ -7,7 +7,7 @@ import { EVENT_CATEGORIES } from '../utils/constants'
 import { Link } from 'react-router-dom'
 
 const DEMO = [
-  { id:'e1', name:'Grand Wedding Reception',    location:'Vijayawada, AP',  date:new Date(Date.now()+2*86400000).toISOString(),  category:'wedding',   machines:['CO2 Blaster x2','Stage Lighting','Full Setup'],   public:true },
+  { id:'e1', name:'Grand Wedding Reception',    location:'Hyderabad, TS',  date:new Date(Date.now()+2*86400000).toISOString(),  category:'wedding',   machines:['CO2 Blaster x2','Stage Lighting','Full Setup'],   public:true },
   { id:'e2', name:'DJ Night — Club Pulse',      location:'Hyderabad, TS',   date:new Date(Date.now()+4*86400000).toISOString(),  category:'dj',        machines:['CO2 Blaster x1','Smoke Machine','Operator'],     public:true },
   { id:'e3', name:'Annual College Fest 2025',   location:'Guntur, AP',      date:new Date(Date.now()+7*86400000).toISOString(),  category:'college',   machines:['Stage Lighting','Generator','CO2 Blaster x3'],   public:true },
   { id:'e4', name:'Corporate Product Launch',   location:'Amaravati, AP',   date:new Date(Date.now()+10*86400000).toISOString(), category:'corporate', machines:['Lighting Rig','Smoke Machine','Full Setup'],     public:true },

@@ -26,7 +26,7 @@ export default function Footer() {
             </div>
 
             <p className="text-sm leading-relaxed mb-5" style={{ color:'#9C7A82' }}>
-              Premium event production company crafting unforgettable experiences across Andhra Pradesh & Telangana.
+              Premium event production company crafting unforgettable experiences across Telangana & Andhra Pradesh.
             </p>
 
             <a href="https://instagram.com/varahievents" target="_blank" rel="noopener noreferrer"
@@ -105,7 +105,7 @@ export default function Footer() {
             © {new Date().getFullYear()} Varahi Events. All rights reserved.
           </p>
           <p className="text-xs flex items-center gap-1" style={{ color:'#9C7A82' }}>
-            Made with <Heart size={11} style={{ color:'#E8718A', fill:'#E8718A', margin:'0 2px' }} /> in Andhra Pradesh
+            Made with <Heart size={11} style={{ color:'#E8718A', fill:'#E8718A', margin:'0 2px' }} /> in Hyderabad
           </p>
         </div>
       </div>
