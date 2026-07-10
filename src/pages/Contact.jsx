@@ -25,7 +25,7 @@ export default function Contact() {
     { icon: Phone,     label:'Call Us',    value: BUSINESS_INFO.phone2,    href:`tel:${BUSINESS_INFO.phone2.replace(/\s/g,'')}`, color:'text-green-400' },
     { icon: Mail,      label:'Email',      value: BUSINESS_INFO.email,     href:`mailto:${BUSINESS_INFO.email}`, color:'text-blue-400' },
     { icon: MapPin,    label:'Location',   value: BUSINESS_INFO.city,      href:null,                            color:'text-brand-violet' },
-    { icon: Instagram, label:'Instagram',  value:'@varahievents',           href:'https://instagram.com',         color:'text-brand-pink' },
+    { icon: Instagram, label:'Instagram',  value:'@varahi_events__',        href:'https://instagram.com/varahi_events__', color:'text-brand-pink' },
   ]
 
   return (

@@ -95,7 +95,7 @@ export const generateInvoice = (booking) => {
   doc.text(BUSINESS_INFO.tagline, cx, 26)
   text(MUTED); doc.setFont('helvetica', 'normal'); doc.setFontSize(8)
   doc.text(BUSINESS_INFO.city, cx, 31)
-  doc.text(`${BUSINESS_INFO.phone}  |  ${BUSINESS_INFO.email}`, cx, 35.5)
+  doc.text(`${BUSINESS_INFO.phone}, ${BUSINESS_INFO.phone2}  |  ${BUSINESS_INFO.email}`, cx, 35.5)
 
   // INVOICE title
   text(MAROON); doc.setFont('helvetica', 'bold'); doc.setFontSize(28)
@@ -259,7 +259,7 @@ export const generateInvoice = (booking) => {
     fill(MAROON); doc.rect(0, 289, W, 8, 'F')
     fill(GOLD);   doc.rect(0, 288, W, 0.8, 'F')
     text(WHITE); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5)
-    doc.text(`${BUSINESS_INFO.name}  ·  ${BUSINESS_INFO.phone}  ·  ${BUSINESS_INFO.email}`, W / 2, 294, { align: 'center' })
+    doc.text(`${BUSINESS_INFO.name}  ·  ${BUSINESS_INFO.phone}, ${BUSINESS_INFO.phone2}  ·  ${BUSINESS_INFO.email}`, W / 2, 294, { align: 'center' })
     doc.setFontSize(6.5); text(GOLD)
     doc.text('Thank you for choosing Varahi Events — Turning Events Into Experiences', W / 2, 285, { align: 'center' })
   }

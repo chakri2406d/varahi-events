@@ -29,11 +29,11 @@ export default function Footer() {
               Premium event production company crafting unforgettable experiences across Telangana & Andhra Pradesh.
             </p>
 
-            <a href="https://instagram.com/varahievents" target="_blank" rel="noopener noreferrer"
+            <a href="https://instagram.com/varahi_events__" target="_blank" rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all"
               style={{ background:'rgba(232,113,138,0.1)', border:'1px solid rgba(232,113,138,0.3)', color:'#F4A0B0' }}>
               <Instagram size={16} />
-              @varahievents
+              @varahi_events__
             </a>
           </div>
 
@@ -78,7 +78,7 @@ export default function Footer() {
             <ul className="space-y-3">
               <li className="flex items-center gap-3 text-sm" style={{ color:'#9C7A82' }}>
                 <Phone size={15} style={{ color:'#C9933A', flexShrink:0 }} />
-                {BUSINESS_INFO.phone}
+                <span>{BUSINESS_INFO.phone}<br />{BUSINESS_INFO.phone2}</span>
               </li>
               <li className="flex items-center gap-3 text-sm" style={{ color:'#9C7A82' }}>
                 <Mail size={15} style={{ color:'#C9933A', flexShrink:0 }} />
