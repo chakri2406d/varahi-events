@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Plus, Trash2, Edit3, Save, X } from 'lucide-react'
+import { Plus, Trash2, Edit3, Save, X, ImagePlus, Loader2 } from 'lucide-react'
 import { getMachines, addMachine, updateMachine, deleteMachine } from '../../firebase/firestore'
+import { compressImage } from '../../firebase/storage'
 import { MACHINE_STATUS, MACHINE_STATUS_COLORS } from '../../utils/constants'
 import toast from 'react-hot-toast'
 
-const EMPTY = { name:'', description:'', status:'available', totalQty:1, availableQty:1, rate:'', emoji:'🎪', addons:'' }
+const EMPTY = { name:'', description:'', status:'available', totalQty:1, availableQty:1, rate:'', emoji:'🎪', addons:'', imageUrl:'' }
 
 // A machine with rate:null ("price on request") would otherwise put null into a
 // controlled <input>, flipping it to uncontrolled and warning in the console.
@@ -23,6 +24,23 @@ export default function MachineManagement() {
   const [editing,  setEditing]  = useState(null)
   const [form,     setForm]     = useState(EMPTY)
   const [saving,   setSaving]   = useState(false)
+  const [uploading, setUploading] = useState(false)
+
+  // Photo is compressed in the browser and stored as base64 on the machine doc
+  // (no paid storage bucket). Kept small so the doc stays under Firestore's 1MB.
+  const handlePhoto = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''            // allow re-picking the same file
+    if (!file) return
+    setUploading(true)
+    try {
+      const imageUrl = await compressImage(file)
+      setForm(f => ({ ...f, imageUrl }))
+      toast.success('Photo ready — remember to Save')
+    } catch (err) {
+      toast.error(err.message || 'Could not process that image')
+    } finally { setUploading(false) }
+  }
 
   const load = () => getMachines().then(setMachines).catch(()=>{}).finally(()=>setLoading(false))
   useEffect(() => { load() }, [])
@@ -131,6 +149,43 @@ export default function MachineManagement() {
                 Leave blank to show "On request" instead of a price.
               </p>
             </div>
+            {/* Machine photo — what the customer actually sees when booking */}
+            <div className="sm:col-span-2">
+              <label className="label-dark">Machine Photo</label>
+              <div className="flex items-center gap-4 flex-wrap">
+                <div className="rounded-xl overflow-hidden flex items-center justify-center flex-shrink-0"
+                  style={{ width:120, height:90, background:'rgba(13,5,8,0.6)', border:'1px solid rgba(61,30,40,0.8)' }}>
+                  {form.imageUrl ? (
+                    <img src={form.imageUrl} alt="Machine" className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-3xl opacity-40">{form.emoji || '🎪'}</span>
+                  )}
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  <label className="btn-secondary text-sm py-2 px-4 cursor-pointer inline-flex items-center gap-2">
+                    {uploading
+                      ? <><Loader2 size={14} className="animate-spin"/> Processing…</>
+                      : <><ImagePlus size={14}/> {form.imageUrl ? 'Change Photo' : 'Upload Photo'}</>}
+                    <input type="file" accept="image/*" className="hidden"
+                      onChange={handlePhoto} disabled={uploading} />
+                  </label>
+
+                  {form.imageUrl && (
+                    <button type="button"
+                      onClick={() => setForm(f => ({ ...f, imageUrl: '' }))}
+                      className="text-xs hover:underline text-left" style={{ color:'#fca5a5' }}>
+                      Remove photo
+                    </button>
+                  )}
+                </div>
+              </div>
+              <p className="text-xs mt-2" style={{ color:'#9C7A82' }}>
+                Shown to customers on the Equipment page so they can see exactly what
+                they're booking. Photos are compressed automatically — any size is fine.
+              </p>
+            </div>
+
             <div className="sm:col-span-2">
               <label className="label-dark">Add-ons (comma separated)</label>
               <input className="input-dark" value={form.addons} onChange={set('addons')} placeholder="Transport, Operator, Full Setup"/>
@@ -157,7 +212,18 @@ export default function MachineManagement() {
               className="glass-card p-4">
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-3">
-                  <div className="text-3xl">{m.emoji||'🎪'}</div>
+                  {/* Photo thumbnail so it's obvious which machines still need one */}
+                  {m.imageUrl ? (
+                    <img src={m.imageUrl} alt={m.name} loading="lazy"
+                      className="w-12 h-12 rounded-xl object-cover flex-shrink-0"
+                      style={{ border:'1px solid rgba(61,30,40,0.8)' }} />
+                  ) : (
+                    <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0"
+                      style={{ background:'rgba(13,5,8,0.6)', border:'1px dashed rgba(61,30,40,0.9)' }}
+                      title="No photo yet">
+                      {m.emoji||'🎪'}
+                    </div>
+                  )}
                   <div>
                     <p className="text-white font-semibold text-sm">{m.name}</p>
                     <span className={`${MACHINE_STATUS_COLORS[m.status]||'badge-green'} text-[10px]`}>{m.status}</span>

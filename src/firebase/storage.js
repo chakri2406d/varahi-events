@@ -25,6 +25,43 @@ const drawToBase64 = (img, maxSize, quality) => {
   return canvas.toDataURL('image/jpeg', quality)
 }
 
+/*
+  Reusable image compressor for anything stored as base64 inside a Firestore
+  document (machine photos, gallery images, payment proofs). Steps the quality
+  down until the encoded string fits, so a 6MB phone photo still saves.
+
+  maxChars defaults lower than the payment-proof budget because machine docs
+  also carry description/add-ons text alongside the image.
+*/
+export const compressImage = (file, { maxChars = 700_000, sizes = [1000, 800, 640, 480] } = {}) =>
+  new Promise((resolve, reject) => {
+    if (!file) { reject(new Error('No file selected')); return }
+    if (!file.type?.startsWith('image/')) { reject(new Error('Please choose an image file')); return }
+
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+
+    img.onload = () => {
+      let out = null
+      // Try progressively smaller dimensions and qualities until it fits
+      outer: for (const maxSize of sizes) {
+        for (const quality of [0.75, 0.6, 0.5, 0.4, 0.3]) {
+          out = drawToBase64(img, maxSize, quality)
+          if (out.length <= maxChars) break outer
+        }
+      }
+      URL.revokeObjectURL(url)
+
+      if (!out || out.length > maxChars) {
+        reject(new Error('Image is too large even after compression. Please use a smaller photo.'))
+        return
+      }
+      resolve(out)
+    }
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read that image')) }
+    img.src = url
+  })
+
 export const uploadPaymentProof = async (bookingId, file) => {
   return new Promise((resolve, reject) => {
     if (!file) { reject(new Error('No file')); return }

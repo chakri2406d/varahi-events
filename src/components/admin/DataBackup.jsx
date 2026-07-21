@@ -1,15 +1,17 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Database, Download, Loader2, CheckCircle2, XCircle, Info, Table } from 'lucide-react'
+import { FileSpreadsheet, FileText, Download, Loader2, CheckCircle2, XCircle, Info, Table } from 'lucide-react'
 import {
   getAllBookings, getMachines, getAllEvents, getExpenses,
   getGalleryItems, getCrew, getInquiries, getAllReviews,
 } from '../../firebase/firestore'
 import { downloadCsv } from '../../utils/exportCsv'
+import { downloadWorkbook } from '../../utils/exportWorkbook'
+import { downloadPdfReport } from '../../utils/exportPdfReport'
 import toast from 'react-hot-toast'
 
-// Everything the backup pulls in. label = shown to the admin, fetch = the
-// exact firestore.js export that returns that collection's rows.
+// Everything the export pulls in. label = shown to the admin AND used as the
+// Excel sheet name, fetch = the exact firestore.js export for that collection.
 const COLLECTIONS = [
   { key: 'bookings',  label: 'Bookings',  fetch: getAllBookings },
   { key: 'machines',  label: 'Equipment', fetch: getMachines },
@@ -27,88 +29,79 @@ const CSV_COLLECTIONS = COLLECTIONS.filter(c =>
 
 const todayStr = () => new Date().toISOString().slice(0, 10)
 
-// Firestore Timestamps expose .toDate() but don't survive JSON.stringify in
-// any useful form (they'd serialize as {seconds, nanoseconds}). Convert them
-// to ISO strings recursively. seen guards against accidental circular refs.
-function sanitize(value, seen = new WeakSet()) {
-  if (value === null || value === undefined) return value
-
-  if (typeof value === 'object') {
-    if (typeof value.toDate === 'function') {
-      try { return value.toDate().toISOString() } catch { return null }
-    }
-    if (value instanceof Date) {
-      return isNaN(value.getTime()) ? null : value.toISOString()
-    }
-    if (seen.has(value)) return '[circular]'
-    seen.add(value)
-
-    if (Array.isArray(value)) return value.map(v => sanitize(v, seen))
-
-    const out = {}
-    Object.keys(value).forEach(k => { out[k] = sanitize(value[k], seen) })
-    return out
-  }
-
-  return value
-}
-
 export default function DataBackup() {
-  const [backing,  setBacking]  = useState(false)
+  const [activeExport, setActiveExport] = useState(null) // 'excel' | 'pdf' | null
   const [progress, setProgress] = useState(null) // { done, total, current }
   const [summary,  setSummary]  = useState(null) // { counts, failed }
   const [csvKey,   setCsvKey]   = useState(null) // which per-collection CSV is exporting
 
-  const handleBackup = async () => {
-    setBacking(true)
-    setSummary(null)
+  // Shared resilient fetch used by BOTH the Excel and PDF exports — sequential
+  // (not Promise.all) so the progress line means something and one slow or
+  // failing collection doesn't hide behind the others or abort the rest.
+  const fetchAllCollections = async () => {
     const data   = {}
     const counts = {}
     const failed = []
 
-    // Sequential, not Promise.all, so the progress line means something and
-    // one slow/failing collection doesn't hide behind the others.
     for (let i = 0; i < COLLECTIONS.length; i++) {
       const { key, label, fetch } = COLLECTIONS[i]
       setProgress({ done: i, total: COLLECTIONS.length, current: label })
       try {
         const rows = await fetch()
-        data[key]   = sanitize(rows)
+        data[key]   = rows
         counts[key] = Array.isArray(rows) ? rows.length : 0
       } catch (err) {
-        console.error(`Backup: failed to fetch ${label}`, err)
+        console.error(`Export: failed to fetch ${label}`, err)
         failed.push(label)
         data[key]   = []
         counts[key] = 0
       }
     }
     setProgress({ done: COLLECTIONS.length, total: COLLECTIONS.length, current: null })
+    return { data, counts, failed }
+  }
 
+  const handleExcelExport = async () => {
+    setActiveExport('excel')
+    setSummary(null)
     try {
-      const payload = { exportedAt: new Date().toISOString(), data }
-      const json = JSON.stringify(payload, null, 2)
-      const blob = new Blob([json], { type: 'application/json' })
-      const url  = URL.createObjectURL(blob)
-
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `varahi-backup-${todayStr()}.json`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
+      const { data, counts, failed } = await fetchAllCollections()
+      const sheets = COLLECTIONS.map(c => ({ name: c.label, rows: data[c.key] || [] }))
+      downloadWorkbook(`Varahi-Export-${todayStr()}.xlsx`, sheets)
 
       setSummary({ counts, failed })
       if (failed.length) {
-        toast.error(`Backup downloaded, but these failed: ${failed.join(', ')}`)
+        toast.error(`Excel downloaded, but these failed: ${failed.join(', ')}`)
       } else {
-        toast.success('Full backup downloaded')
+        toast.success('Excel workbook downloaded')
       }
     } catch (err) {
       console.error(err)
-      toast.error('Failed to build the backup file')
+      toast.error('Failed to build the Excel file')
     } finally {
-      setBacking(false)
+      setActiveExport(null)
+      setProgress(null)
+    }
+  }
+
+  const handlePdfExport = async () => {
+    setActiveExport('pdf')
+    setSummary(null)
+    try {
+      const { data, counts, failed } = await fetchAllCollections()
+      downloadPdfReport(data)
+
+      setSummary({ counts, failed })
+      if (failed.length) {
+        toast.error(`PDF downloaded, but these failed: ${failed.join(', ')}`)
+      } else {
+        toast.success('PDF report downloaded')
+      }
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to build the PDF report')
+    } finally {
+      setActiveExport(null)
       setProgress(null)
     }
   }
@@ -131,36 +124,52 @@ export default function DataBackup() {
     }
   }
 
+  const busy = activeExport !== null
+
   return (
     <div>
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
-        <h1 className="font-display font-bold text-2xl text-white">Data Backup</h1>
+        <h1 className="font-display font-bold text-2xl text-white">Data Export</h1>
         <p className="text-sm" style={{ color: '#9C7A82' }}>There's no backup today — export everything, right now</p>
       </motion.div>
 
-      {/* Full JSON backup */}
+      {/* Full data export — Excel + PDF */}
       <div className="glass-card p-6 mb-6">
         <div className="flex items-start gap-4 flex-wrap">
           <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
             style={{ background: 'rgba(201,147,58,0.1)' }}>
-            <Database size={22} style={{ color: '#C9933A' }} />
+            <FileSpreadsheet size={22} style={{ color: '#C9933A' }} />
           </div>
           <div className="flex-1 min-w-[220px]">
-            <h2 className="text-white font-semibold mb-1">Full backup (JSON)</h2>
+            <h2 className="text-white font-semibold mb-1">Full data export</h2>
             <p className="text-sm mb-4" style={{ color: '#9C7A82' }}>
-              Downloads every collection — bookings, equipment, events, expenses, gallery, crew,
-              inquiries and reviews — as one JSON file you can store safely.
+              Every collection — bookings, equipment, events, expenses, gallery, crew, inquiries
+              and reviews. The Excel workbook has one sheet per collection, ready to filter or
+              pivot. The PDF is a formatted business report — summary + tables — good for
+              sharing with a partner or handing to an accountant.
             </p>
-            <button
-              onClick={handleBackup}
-              disabled={backing}
-              className="btn-primary text-sm py-2.5 px-5 flex items-center gap-2"
-              style={{ opacity: backing ? 0.7 : 1 }}
-            >
-              {backing
-                ? <><Loader2 size={15} className="animate-spin" /> Backing up…</>
-                : <><Download size={15} /> Download full backup (JSON)</>}
-            </button>
+            <div className="flex flex-wrap gap-2.5">
+              <button
+                onClick={handleExcelExport}
+                disabled={busy}
+                className="btn-primary text-sm py-2.5 px-5 flex items-center gap-2"
+                style={{ opacity: busy ? 0.7 : 1 }}
+              >
+                {activeExport === 'excel'
+                  ? <><Loader2 size={15} className="animate-spin" /> Building workbook…</>
+                  : <><FileSpreadsheet size={15} /> Download Excel (.xlsx)</>}
+              </button>
+              <button
+                onClick={handlePdfExport}
+                disabled={busy}
+                className="btn-secondary text-sm py-2.5 px-5 flex items-center gap-2"
+                style={{ opacity: busy ? 0.7 : 1 }}
+              >
+                {activeExport === 'pdf'
+                  ? <><Loader2 size={15} className="animate-spin" /> Building report…</>
+                  : <><FileText size={15} /> Download PDF report</>}
+              </button>
+            </div>
 
             {progress && (
               <div className="mt-4">
@@ -182,7 +191,7 @@ export default function DataBackup() {
 
             {summary && (
               <div className="mt-5 pt-5" style={{ borderTop: '1px solid rgba(61,30,40,0.8)' }}>
-                <p className="text-xs uppercase tracking-wider mb-3" style={{ color: '#9C7A82' }}>Backup summary</p>
+                <p className="text-xs uppercase tracking-wider mb-3" style={{ color: '#9C7A82' }}>Export summary</p>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {COLLECTIONS.map(c => {
                     const ok = !summary.failed.includes(c.label)
@@ -236,10 +245,10 @@ export default function DataBackup() {
       <div className="glass-card p-5 flex items-start gap-3">
         <Info size={16} className="flex-shrink-0 mt-0.5" style={{ color: '#9C7A82' }} />
         <p className="text-xs leading-relaxed" style={{ color: '#9C7A82' }}>
-          This backup runs entirely in your browser — no server involved, your data goes straight
-          from Firestore to a file on your device. We recommend downloading a full backup at
+          This export runs entirely in your browser — no server involved, your data goes straight
+          from Firestore to a file on your device. We recommend downloading a full export at
           least once a month and keeping a copy somewhere safe (a shared drive, email to yourself,
-          etc). A failed collection during backup won't stop the rest — check the summary above
+          etc). A failed collection during export won't stop the rest — check the summary above
           after each run.
         </p>
       </div>
