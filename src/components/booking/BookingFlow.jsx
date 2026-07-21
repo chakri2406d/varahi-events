@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
-import { Calendar, MapPin, FileText, Zap, CheckCircle } from 'lucide-react'
+import { Calendar, MapPin, FileText, Zap, CheckCircle, Phone } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { createBooking } from '../../firebase/firestore'
 import { ADDONS } from '../../utils/constants'
@@ -21,6 +21,7 @@ export default function BookingFlow({ selectedMachines, onBack }) {
   const [form, setForm] = useState({
     eventDate:     '',
     eventLocation: '',
+    customerPhone: '',
     notes:         '',
     addons:        [],
   })
@@ -67,6 +68,21 @@ export default function BookingFlow({ selectedMachines, onBack }) {
         />
       </div>
 
+      {/* Contact phone */}
+      <div className="mb-4">
+        <label className="label-dark"><Phone size={12} className="inline mr-1" />Contact Number</label>
+        <input
+          type="tel"
+          className="input-dark"
+          placeholder="e.g. +91 98765 43210"
+          value={form.customerPhone}
+          onChange={e => setForm(f => ({ ...f, customerPhone: e.target.value }))}
+        />
+        <p className="text-xs mt-1" style={{ color: '#9C7A82' }}>
+          We'll call you on this number to confirm setup details.
+        </p>
+      </div>
+
       {/* Notes */}
       <div className="mb-5">
         <label className="label-dark"><FileText size={12} className="inline mr-1" />Additional Notes</label>
@@ -83,6 +99,8 @@ export default function BookingFlow({ selectedMachines, onBack }) {
         onClick={() => {
           if (!form.eventDate)     return toast.error('Please select an event date')
           if (!form.eventLocation) return toast.error('Please enter event location')
+          if (!/^[+\d][\d\s-]{8,}$/.test(form.customerPhone.trim()))
+            return toast.error('Please enter a valid contact number')
           setStep(1)
         }}
         className="btn-primary w-full justify-center"
@@ -147,7 +165,7 @@ export default function BookingFlow({ selectedMachines, onBack }) {
         userId:        user.uid,
         customerName:  user.displayName || '',
         customerEmail: user.email || '',
-        customerPhone: '',
+        customerPhone: form.customerPhone.trim(),
         machines:      machines.map(m => ({ id: m.id, name: m.name, qty: m.qty })),
         addons:        form.addons,
         eventDate:     form.eventDate,

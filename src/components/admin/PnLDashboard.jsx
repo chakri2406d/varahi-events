@@ -40,7 +40,13 @@ export default function PnLDashboard() {
 
     const exp = expenses
       .filter(e => {
-        const ed = e.createdAt?.toDate ? e.createdAt.toDate() : new Date(e.createdAt||e.date)
+        // Bucket by the date the admin actually chose for the expense, so a
+        // backdated receipt lands in its real month — fall back to createdAt.
+        const chosen = e.date ? new Date(e.date) : null
+        const ed = chosen && !isNaN(chosen.getTime())
+          ? chosen
+          : (e.createdAt?.toDate ? e.createdAt.toDate() : new Date(e.createdAt))
+        if (!ed || isNaN(ed.getTime())) return false
         return ed.getMonth()===mo && ed.getFullYear()===yr
       })
       .reduce((s,e) => s + (Number(e.amount)||0), 0)

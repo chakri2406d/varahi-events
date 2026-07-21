@@ -14,9 +14,16 @@ service cloud.firestore {
     // ── User profiles ──────────────────────────────────────────────
     // A user reads/writes their own profile; admin can read/manage any.
     match /users/{userId} {
-      allow read:          if isSignedIn() && (request.auth.uid == userId || isAdmin());
-      allow create:        if isSignedIn() && request.auth.uid == userId;
-      allow update, delete: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow read:   if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      // New accounts must start as a normal user — nobody can self-register as admin.
+      allow create: if isSignedIn() && request.auth.uid == userId
+                    && request.resource.data.role == 'user';
+      // Owner may edit their profile but MAY NOT change their own role.
+      // Only an existing admin can change roles.
+      allow update: if isAdmin() ||
+                    (isSignedIn() && request.auth.uid == userId
+                     && request.resource.data.role == resource.data.role);
+      allow delete: if isAdmin();
     }
 
     // ── Bookings ───────────────────────────────────────────────────
@@ -27,7 +34,15 @@ service cloud.firestore {
       allow read:   if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
       allow create: if isSignedIn() &&
                     (request.resource.data.userId == request.auth.uid || isAdmin());
-      allow update: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      // Admin can change anything. A customer may ONLY submit payment proof on
+      // their own booking — they cannot confirm it or mark it paid/verified.
+      allow update: if isAdmin() ||
+                    (isSignedIn()
+                     && resource.data.userId == request.auth.uid
+                     && request.resource.data.diff(resource.data).affectedKeys()
+                          .hasOnly(['status','paymentProofUrl','transactionId',
+                                    'amountPaid','paymentSubmittedAt','updatedAt'])
+                     && request.resource.data.status == 'payment_pending');
       allow delete: if isAdmin();
     }
 
@@ -41,6 +56,12 @@ service cloud.firestore {
     match /expenses/{id} { allow read, write: if isAdmin(); }
 
     // ── Notifications — signed-in users ────────────────────────────
-    match /notifications/{id} { allow read, write: if isSignedIn(); }
+    // Notifications — a user only sees/edits their own; admin can send any.
+    match /notifications/{id} {
+      allow read:   if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isAdmin() || (isSignedIn() && request.resource.data.userId == request.auth.uid);
+      allow update: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow delete: if isAdmin();
+    }
   }
 }

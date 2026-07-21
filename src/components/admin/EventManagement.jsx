@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { CalendarCheck, Plus, Trash2, MapPin, Tag } from 'lucide-react'
-import { getPublicEvents, addPublicEvent, deletePublicEvent } from '../../firebase/firestore'
+import { getAllEvents, addPublicEvent, deletePublicEvent } from '../../firebase/firestore'
 import toast from 'react-hot-toast'
 
 const CATEGORIES = ['wedding', 'dj', 'concert', 'college', 'corporate']
@@ -16,7 +16,9 @@ export default function EventManagement() {
 
   const load = () => {
     setLoading(true)
-    getPublicEvents().then(setEvents).catch(() => {}).finally(() => setLoading(false))
+    // getAllEvents (not getPublicEvents) so events hidden from the public
+    // calendar are still visible and manageable here.
+    getAllEvents().then(setEvents).catch(() => {}).finally(() => setLoading(false))
   }
 
   useEffect(() => { load() }, [])
@@ -36,7 +38,13 @@ export default function EventManagement() {
   }
 
   const handleDelete = async (id) => {
-    if (!confirm('Remove this event from the calendar?')) return
+    const ev = events.find(e => e.id === id)
+    // Events created automatically when a booking is confirmed are what block
+    // that date publicly — deleting one frees up a date a customer has paid for.
+    const msg = ev?.bookingId
+      ? 'This date is blocked because of a CONFIRMED BOOKING. Removing it will show the date as available again, even though the booking still stands. Remove anyway?'
+      : 'Remove this event from the calendar?'
+    if (!confirm(msg)) return
     try {
       await deletePublicEvent(id)
       toast.success('Event removed')
@@ -149,6 +157,18 @@ export default function EventManagement() {
                 style={{ background:`${CAT_COLORS[e.category]||'#7C3AED'}20`, color:CAT_COLORS[e.category]||'#7C3AED', border:`1px solid ${CAT_COLORS[e.category]||'#7C3AED'}30` }}>
                 {e.category}
               </span>
+              {e.public === false && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full flex-shrink-0"
+                  style={{ background:'rgba(156,122,130,0.15)', color:'#9C7A82', border:'1px solid rgba(156,122,130,0.3)' }}>
+                  hidden
+                </span>
+              )}
+              {e.bookingId && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full flex-shrink-0"
+                  style={{ background:'rgba(201,147,58,0.15)', color:'#E8B86D', border:'1px solid rgba(201,147,58,0.3)' }}>
+                  booking
+                </span>
+              )}
               <button onClick={() => handleDelete(e.id)}
                 className="p-1.5 rounded-lg text-brand-muted hover:text-red-400 hover:bg-red-500/10 transition-all flex-shrink-0">
                 <Trash2 size={14}/>

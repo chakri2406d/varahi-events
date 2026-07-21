@@ -35,7 +35,9 @@ export default function AdminDashboard() {
       toast.error('Please enter the total booking amount first'); return
     }
     const paid = Number(b.amountPaid || 0)
-    if (b.status === 'payment_pending' && paid < total * 0.4) {
+    // Minimum 40% advance applies to EVERY booking, whatever its current status
+    // (a "requested" booking has paid nothing yet, so it must be blocked too).
+    if (paid < total * 0.4) {
       toast.error(`Minimum 40% advance = ₹${Math.ceil(total*0.4).toLocaleString('en-IN')}. Customer paid ₹${paid.toLocaleString('en-IN')}.`); return
     }
 
@@ -49,15 +51,16 @@ export default function AdminDashboard() {
 
       // Block date on calendar
       if (b.eventDate) {
+        // Block the date publicly WITHOUT leaking the customer's name, address
+        // or equipment list. Matches what Booking Management writes.
         await addPublicEvent({
-          name:      `${b.customerName}'s Event`,
+          name:      'Booked — Unavailable',
           date:      b.eventDate,
-          location:  b.eventLocation || 'TBD',
+          location:  '',
           category:  'corporate',
           public:    true,
+          blocked:   true,
           bookingId: b.id,
-          equipment: b.machines?.map(m => m.name || m).join(', ') || '',
-          customer:  b.customerName,
         })
       }
 

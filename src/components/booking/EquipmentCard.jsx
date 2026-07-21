@@ -12,8 +12,12 @@ const STATUS_LABELS = {
 
 export default function EquipmentCard({ machine, selected, qty, onSelect, onQtyChange }) {
   const [showInfo, setShowInfo] = useState(false)
-  const available = machine.status === MACHINE_STATUS.AVAILABLE
-  const maxQty    = machine.availableQty || machine.totalQty || 1
+  // Use ?? not || so a genuine availableQty of 0 (sold out) isn't treated as
+  // "not set" and silently replaced by totalQty.
+  const stock  = machine.availableQty ?? machine.totalQty ?? 0
+  const total  = machine.totalQty ?? stock
+  const maxQty = Math.max(1, stock)
+  const available = machine.status === MACHINE_STATUS.AVAILABLE && stock > 0
 
   const handleToggle = () => {
     if (!available) return
@@ -149,13 +153,13 @@ export default function EquipmentCard({ machine, selected, qty, onSelect, onQtyC
                 background: selected
                   ? 'linear-gradient(90deg, #8B1A2C, #C9933A)'
                   : 'linear-gradient(90deg, #6B0F1A, #8B1A2C)',
-                width: `${((machine.availableQty || maxQty) / (machine.totalQty || maxQty)) * 100}%`
+                width: `${total ? (stock / total) * 100 : 0}%`
               }}
-              animate={{ width: `${((machine.availableQty || maxQty) / (machine.totalQty || maxQty)) * 100}%` }}
+              animate={{ width: `${total ? (stock / total) * 100 : 0}%` }}
             />
           </div>
           <span className="text-xs whitespace-nowrap" style={{ color: '#9C7A82' }}>
-            {machine.availableQty || maxQty}/{machine.totalQty || maxQty} available
+            {stock}/{total} available
           </span>
         </div>
 

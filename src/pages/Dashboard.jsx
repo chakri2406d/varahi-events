@@ -6,7 +6,7 @@ import QRCode from 'react-qr-code'
 import { useAuth } from '../context/AuthContext'
 import { listenUserBookings, paymentBreakdown } from '../firebase/firestore'
 import { generateInvoice } from '../utils/invoiceGenerator'
-import { STATUS_LABELS, STATUS_COLORS } from '../utils/constants'
+import { STATUS_LABELS, STATUS_COLORS, ADDONS } from '../utils/constants'
 import { fmt, relativeDay } from '../utils/dateUtils'
 
 function BookingCard({ booking, index, onShowQr }) {
@@ -67,7 +67,7 @@ function BookingCard({ booking, index, onShowQr }) {
           {booking.addons.map(a => (
             <span key={a} className="px-2 py-0.5 rounded-md text-[10px]"
               style={{ background:'rgba(13,5,8,0.6)', border:'1px solid rgba(61,30,40,0.6)', color:'#9C7A82' }}>
-              {a}
+              {ADDONS.find(x => x.id === a)?.label || a}
             </span>
           ))}
         </div>
@@ -228,14 +228,18 @@ export default function Dashboard() {
   const pending    = bookings.filter(b => ['requested','payment_pending'].includes(b.status))
   const totalPaid  = bookings.reduce((sum, b) => sum + paymentBreakdown(b).total, 0)
 
+  // Single source of truth so the tab badge and the list can't disagree.
+  const ACTIVE_STATUSES = ['requested','payment_pending','confirmed','event_started']
+  const active = bookings.filter(b => ACTIVE_STATUSES.includes(b.status))
+
   const tabs = [
     { id:'all',       label:'All',       count: bookings.length },
-    { id:'active',    label:'Active',    count: [...pending, ...upcoming].length },
+    { id:'active',    label:'Active',    count: active.length },
     { id:'completed', label:'Completed', count: bookings.filter(b => b.status==='completed').length },
   ]
 
-  const filtered = activeTab === 'all'       ? bookings
-    : activeTab === 'active'    ? bookings.filter(b => ['requested','payment_pending','confirmed','event_started'].includes(b.status))
+  const filtered = activeTab === 'all'    ? bookings
+    : activeTab === 'active'              ? active
     : bookings.filter(b => b.status === 'completed')
 
   const STATS = [

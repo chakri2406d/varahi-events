@@ -22,12 +22,23 @@ export default function MachineManagement() {
 
   const handleSave = async () => {
     if (!form.name) { toast.error('Name is required'); return }
+    const totalQty     = Number(form.totalQty)
+    const availableQty = Number(form.availableQty)
+    if (!Number.isFinite(totalQty) || totalQty < 0) {
+      toast.error('Total quantity must be 0 or more'); return
+    }
+    if (!Number.isFinite(availableQty) || availableQty < 0) {
+      toast.error('Available quantity must be 0 or more'); return
+    }
+    if (availableQty > totalQty) {
+      toast.error('Available quantity cannot be more than total quantity'); return
+    }
     setSaving(true)
     try {
       const data = {
         ...form,
-        totalQty:     Number(form.totalQty),
-        availableQty: Number(form.availableQty),
+        totalQty,
+        availableQty,
         addons: typeof form.addons === 'string' ? form.addons.split(',').map(s=>s.trim()).filter(Boolean) : form.addons,
       }
       if (editing) { await updateMachine(editing, data); toast.success('Machine updated') }

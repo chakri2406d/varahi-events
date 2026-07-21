@@ -5,9 +5,10 @@ export const uploadPaymentProof = async (bookingId, file) => {
   return new Promise((resolve, reject) => {
     if (!file) { reject(new Error('No file')); return }
 
-    // Check size — Firestore limit is 1MB per document
-    // Compress if needed
-    if (file.size > 800 * 1024) {
+    // Firestore's limit is 1,048,576 bytes per DOCUMENT, and base64 inflates a
+    // file by ~33%. So anything over ~500KB raw would blow the limit once
+    // encoded (plus the rest of the booking fields) — compress from there.
+    if (file.size > 500 * 1024) {
       // Compress image using canvas
       const img = new Image()
       const url = URL.createObjectURL(file)

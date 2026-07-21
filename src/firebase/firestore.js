@@ -261,6 +261,16 @@ export const listenPublicEvents = (callback) =>
     },
   )
 
+// Admin-only: every event, including ones hidden from the public calendar.
+// getPublicEvents() filters on public==true, so hidden events would otherwise
+// disappear from the admin's own list and become unmanageable.
+export const getAllEvents = async () => {
+  const snap = await getDocs(collection(db, 'events'))
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => new Date(a.date) - new Date(b.date))
+}
+
 export const addPublicEvent = (data) =>
   addDoc(collection(db, 'events'), { ...data, createdAt: serverTimestamp() })
 
@@ -276,9 +286,8 @@ export const deletePublicEvent = (id) =>
 export const addExpense = (data) =>
   addDoc(collection(db, 'expenses'), { ...data, createdAt: serverTimestamp() })
 
-export const getExpenses = async (month = null) => {
-  let q = query(collection(db, 'expenses'), orderBy('createdAt', 'desc'))
-  const snap = await getDocs(q)
+export const getExpenses = async () => {
+  const snap = await getDocs(query(collection(db, 'expenses'), orderBy('createdAt', 'desc')))
   return snap.docs.map(d => ({ id: d.id, ...d.data() }))
 }
 
@@ -350,7 +359,7 @@ export const getDashboardStats = async () => {
   return {
     totalBookings:    bookings.length,
     confirmedCount:   confirmed.length,
-    pendingCount:     bookings.filter(b => b.status === 'requested' || b.status === 'pending').length,
+    pendingCount:     bookings.filter(b => b.status === 'requested' || b.status === 'payment_pending').length,
     // Actual money received, split by method
     cashCollected,
     onlineCollected,

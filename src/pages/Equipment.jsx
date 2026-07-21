@@ -7,18 +7,6 @@ import { useAuth } from '../context/AuthContext'
 import EquipmentCard from '../components/booking/EquipmentCard'
 import BookingFlow   from '../components/booking/BookingFlow'
 
-// Demo machines (used when Firebase is empty)
-const DEMO_MACHINES = [
-  { id: 'd1', name: 'CO2 Paper Blaster', description: 'High-pressure CO₂ blast with coloured paper confetti. Perfect for wedding entries and DJ nights.', status: 'available', totalQty: 4, availableQty: 3, emoji: '💨', addons: ['Transport','Operator','Paper setup'], specs: { Power: '220V', 'Blast Range': '8 metres', 'Setup Time': '15 mins' } },
-  { id: 'd2', name: 'Stage Lighting Rig', description: 'Full LED moving-head and wash lighting rig for concerts and indoor stage setups.', status: 'available', totalQty: 2, availableQty: 2, emoji: '💡', addons: ['Transport','Operator','Full setup'], specs: { Type: 'LED Moving Head', Coverage: '12×8m stage' } },
-  { id: 'd3', name: 'Fog Machine',        description: 'Atmospheric ground fog for dance floors and dramatic entrances.',                            status: 'available', totalQty: 3, availableQty: 3, emoji: '🌫️', addons: ['Transport','Fluid refill'] },
-  { id: 'd4', name: 'DJ Setup (Full)',    description: 'Professional DJ console, speakers, subwoofers and monitor setup.',                         status: 'available', totalQty: 1, availableQty: 1, emoji: '🎧', addons: ['Transport','Operator','Generator'] },
-  { id: 'd5', name: 'Generator (15KVA)', description: '15 KVA diesel generator for outdoor events with no power supply.',                          status: 'available', totalQty: 2, availableQty: 1, emoji: '⚡', addons: ['Transport','Diesel','Operator'] },
-  { id: 'd6', name: 'Smoke Cannon',      description: 'High-output smoke cannon for dramatic stage entries and crowd moments.',                    status: 'available', totalQty: 2, availableQty: 2, emoji: '🎆', addons: ['Transport','Fluid'] },
-  { id: 'd7', name: 'Drone Light Show',  description: 'Indoor LED drone choreography for weddings and luxury events. Min 20 drones.',             status: 'reserved', totalQty: 1, availableQty: 0, emoji: '🚁', addons: ['Pilot','Permit'] },
-  { id: 'd8', name: 'Mirror Photo Booth',description: 'Interactive LED mirror booth with prints, GIFs and social sharing.',                       status: 'available', totalQty: 1, availableQty: 1, emoji: '🪞', addons: ['Transport','Operator','Prints'] },
-]
-
 export default function Equipment() {
   const { user }    = useAuth()
   const navigate    = useNavigate()
@@ -30,9 +18,11 @@ export default function Equipment() {
   const [filter,    setFilter]    = useState('all')
 
   useEffect(() => {
+    // Only ever show REAL inventory. Showing placeholder machines here would let
+    // customers book (and pay for) equipment that doesn't exist.
     getMachines()
-      .then(data => setMachines(data.length ? data : DEMO_MACHINES))
-      .catch(() => setMachines(DEMO_MACHINES))
+      .then(data => setMachines(data))
+      .catch(() => setMachines([]))
       .finally(() => setLoading(false))
   }, [])
 
@@ -116,6 +106,14 @@ export default function Equipment() {
         {loading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {[...Array(8)].map((_, i) => <div key={i} className="skeleton h-72 rounded-2xl" />)}
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="glass-card p-10 text-center">
+            <p className="text-white font-semibold mb-1">No equipment available right now</p>
+            <p className="text-brand-muted text-sm">
+              Our inventory is being updated. Please check back shortly or contact us
+              on WhatsApp and we'll help you directly.
+            </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
