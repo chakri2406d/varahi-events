@@ -1,0 +1,25 @@
+rules_version = '2';
+
+// Firebase Storage rules for the Varahi Events gallery video uploads.
+//
+// To use video FILE uploads you must:
+//   1. Firebase Console → Build → Storage → Get started (enable Storage).
+//   2. Storage → Rules → paste this file → Publish.
+// If you'd rather not enable Storage, just use YouTube/Instagram links in the
+// gallery — those need none of this.
+//
+// Storage rules can't read Firestore, so "admin only" can't check the user's
+// role here. We allow any signed-in user to write (only your admins reach the
+// upload screen), cap file size, and restrict to video/* . Reads are public so
+// the gallery works for logged-out visitors.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /gallery/{fileName} {
+      allow read: if true;
+      allow write: if request.auth != null
+                   && request.resource.size < 50 * 1024 * 1024
+                   && request.resource.contentType.matches('video/.*');
+      allow delete: if request.auth != null;
+    }
+  }
+}

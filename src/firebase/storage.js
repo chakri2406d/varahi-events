@@ -1,5 +1,51 @@
-// No Firebase Storage used — images stored as Base64 in Firestore
-// This keeps everything free with no storage bucket needed
+// Images are stored as Base64 in Firestore (free, no bucket). VIDEOS can't fit
+// in a 1MB Firestore doc, so uploaded video files use Firebase Storage — which
+// has a free tier. Most gallery videos should be added as YouTube/Instagram
+// links instead (see utils/media.js); file upload is the fallback.
+import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage'
+import { storage } from './config'
+
+// Keep uploads modest so we stay inside Storage's free tier.
+const MAX_VIDEO_BYTES = 50 * 1024 * 1024   // 50 MB
+
+// Uploads a video file and reports progress (0-100). Returns { url, path };
+// keep `path` so the file can be deleted later when its gallery item is removed.
+export const uploadGalleryVideo = (file, onProgress) =>
+  new Promise((resolve, reject) => {
+    if (!file) { reject(new Error('No video selected')); return }
+    if (!file.type?.startsWith('video/')) { reject(new Error('Please choose a video file')); return }
+    if (file.size > MAX_VIDEO_BYTES) {
+      reject(new Error('Video is over 50MB. Trim it, or upload it to YouTube/Instagram and paste the link instead.'))
+      return
+    }
+
+    const safeName = file.name.replace(/[^\w.-]/g, '_')
+    const path = `gallery/${Date.now()}-${safeName}`
+    const task = uploadBytesResumable(ref(storage, path), file, { contentType: file.type })
+
+    task.on(
+      'state_changed',
+      (snap) => onProgress?.(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)),
+      (err) => {
+        // The most common cause is Storage not being enabled / rules not set.
+        reject(new Error(
+          err?.code === 'storage/unauthorized'
+            ? 'Upload not allowed. Enable Firebase Storage and publish storage rules, or use a YouTube/Instagram link.'
+            : 'Video upload failed. Please try again, or paste a link instead.'
+        ))
+      },
+      async () => {
+        try { resolve({ url: await getDownloadURL(task.snapshot.ref), path }) }
+        catch { reject(new Error('Uploaded, but could not read the file URL.')) }
+      },
+    )
+  })
+
+// Best-effort delete of a Storage object (never throws — the doc delete matters more).
+export const deleteStorageFile = async (path) => {
+  if (!path) return
+  try { await deleteObject(ref(storage, path)) } catch { /* already gone / not permitted */ }
+}
 
 // Firestore's limit is 1,048,576 bytes per DOCUMENT, and base64 inflates a
 // file by ~33%. Leave headroom for the rest of the booking fields, so the
