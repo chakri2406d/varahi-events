@@ -88,4 +88,18 @@ export const BUSINESS_INFO = {
   email:    'contact@varahievents.com',
   city:     'Hyderabad, Telangana',
   upiId:    'varahievents@upi',
+  instagram:'varahi_events__',
+
+  // ── Tax settings ────────────────────────────────────────────────────────
+  // Set gstin to your real GST number and gstRate to 18 once you're
+  // GST-registered. Leave gstin blank to keep invoices tax-free (0%).
+  gstin:    '',
+  gstRate:  0,
 }
+
+// Cancellation policy (also printed on the invoice terms)
+export const CANCELLATION_POLICY = [
+  { hoursBefore: 48, chargePct: 0,   label: 'Free cancellation'      },
+  { hoursBefore: 24, chargePct: 50,  label: '50% charge applies'     },
+  { hoursBefore: 0,  chargePct: 100, label: 'No refund'              },
+]

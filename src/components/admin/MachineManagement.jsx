@@ -5,7 +5,7 @@ import { getMachines, addMachine, updateMachine, deleteMachine } from '../../fir
 import { MACHINE_STATUS, MACHINE_STATUS_COLORS } from '../../utils/constants'
 import toast from 'react-hot-toast'
 
-const EMPTY = { name:'', description:'', status:'available', totalQty:1, availableQty:1, emoji:'🎪', addons:'' }
+const EMPTY = { name:'', description:'', status:'available', totalQty:1, availableQty:1, rate:'', emoji:'🎪', addons:'' }
 
 export default function MachineManagement() {
   const [machines, setMachines] = useState([])
@@ -39,6 +39,8 @@ export default function MachineManagement() {
         ...form,
         totalQty,
         availableQty,
+        // Blank rate means "price on request" — store null, not NaN
+        rate: form.rate === '' || form.rate === null ? null : Number(form.rate),
         addons: typeof form.addons === 'string' ? form.addons.split(',').map(s=>s.trim()).filter(Boolean) : form.addons,
       }
       if (editing) { await updateMachine(editing, data); toast.success('Machine updated') }
@@ -111,6 +113,14 @@ export default function MachineManagement() {
                 <label className="label-dark">Available</label>
                 <input type="number" className="input-dark" min={0} value={form.availableQty} onChange={set('availableQty')}/>
               </div>
+            </div>
+            <div className="sm:col-span-2">
+              <label className="label-dark">Rate per unit (₹)</label>
+              <input type="number" className="input-dark" min={0} value={form.rate} onChange={set('rate')}
+                placeholder="e.g. 3000 — shown to customers and used to auto-quote"/>
+              <p className="text-xs mt-1" style={{ color:'#9C7A82' }}>
+                Leave blank to show "On request" instead of a price.
+              </p>
             </div>
             <div className="sm:col-span-2">
               <label className="label-dark">Add-ons (comma separated)</label>

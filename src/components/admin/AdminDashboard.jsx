@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { TrendingUp, CalendarCheck, Clock, Package, DollarSign, Check, Eye, Wallet, Smartphone } from 'lucide-react'
-import { getDashboardStats, listenBookings, updateBookingStatus, addPublicEvent } from '../../firebase/firestore'
+import { getDashboardStats, listenBookings, updateBookingStatus, addPublicEvent,
+         findBookingConflicts, notifyBookingStatus } from '../../firebase/firestore'
 import { STATUS_LABELS, STATUS_COLORS, BOOKING_STATUSES } from '../../utils/constants'
 import { fmt } from '../../utils/dateUtils'
 import toast from 'react-hot-toast'
@@ -43,6 +44,17 @@ export default function AdminDashboard() {
 
     setConfirming(b.id)
     try {
+      // Never commit equipment that's already booked out on this date.
+      const conflicts = await findBookingConflicts(b)
+      if (conflicts.length) {
+        const detail = conflicts
+          .map(c => `${c.name}: need ${c.requested}, only ${c.free} free`)
+          .join(' · ')
+        toast.error(`Not enough equipment on ${b.eventDate} — ${detail}`, { duration: 7000 })
+        setConfirming(null)
+        return
+      }
+
       await updateBookingStatus(b.id, BOOKING_STATUSES.CONFIRMED, {
         totalAmount:     total,
         paymentVerified: true,
@@ -64,6 +76,7 @@ export default function AdminDashboard() {
         })
       }
 
+      await notifyBookingStatus(b, BOOKING_STATUSES.CONFIRMED)
       toast.success(`✅ Confirmed! Date blocked on calendar.`)
       loadStats()
     } catch (err) {

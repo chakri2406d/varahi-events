@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { Calendar, MapPin, FileText, Zap, CheckCircle, Phone } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
-import { createBooking } from '../../firebase/firestore'
+import { createBooking, getDateAvailability } from '../../firebase/firestore'
 import { ADDONS } from '../../utils/constants'
 import { generateBookingId } from '../../utils/dateUtils'
 import PaymentSection from './PaymentSection'
@@ -28,6 +28,42 @@ export default function BookingFlow({ selectedMachines, onBack }) {
 
   const machines = Object.values(selectedMachines)
 
+  // ── Live quote ────────────────────────────────────────────────────────────
+  // Only machines with a rate can be priced; anything without one is quoted by
+  // the admin later, so we flag the estimate as partial.
+  const priced      = machines.filter(m => m.rate != null && m.rate !== '')
+  const quoteTotal  = priced.reduce((s, m) => s + Number(m.rate) * Number(m.qty || 1), 0)
+  const hasUnpriced = priced.length !== machines.length
+
+  // ── Date availability ─────────────────────────────────────────────────────
+  const [availability, setAvailability] = useState(null)
+  const [checkingDate, setCheckingDate] = useState(false)
+
+  useEffect(() => {
+    if (!form.eventDate) { setAvailability(null); return }
+    let cancelled = false
+    setCheckingDate(true)
+    getDateAvailability(form.eventDate)
+      .then(rows => {
+        if (cancelled) return
+        const byId = new Map(rows.map(r => [r.id, r]))
+        // Which of the customer's picks can't be met on this date?
+        const short = machines
+          .map(m => {
+            const info = byId.get(m.id)
+            if (!info) return null
+            const want = Number(m.qty || 1)
+            return want > info.free ? { name: m.name, want, free: info.free } : null
+          })
+          .filter(Boolean)
+        setAvailability(short)
+      })
+      .catch(() => { if (!cancelled) setAvailability(null) })
+      .finally(() => { if (!cancelled) setCheckingDate(false) })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.eventDate])
+
   // ── Step 0: Event details ──────────────────────────────────────────────────
   const renderDetails = () => (
     <motion.div key="details" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
@@ -39,10 +75,52 @@ export default function BookingFlow({ selectedMachines, onBack }) {
         {machines.map(m => (
           <div key={m.id} className="flex items-center justify-between py-1.5">
             <span className="text-white text-sm">{m.name}</span>
-            <span className="badge-violet text-xs">×{m.qty}</span>
+            <div className="flex items-center gap-2">
+              <span className="badge-violet text-xs">×{m.qty}</span>
+              <span className="text-xs" style={{ color:'#C9933A', minWidth:70, textAlign:'right' }}>
+                {m.rate != null && m.rate !== ''
+                  ? `₹${(Number(m.rate) * Number(m.qty || 1)).toLocaleString('en-IN')}`
+                  : 'On request'}
+              </span>
+            </div>
           </div>
         ))}
+
+        {/* Estimated total */}
+        <div className="mt-3 pt-3 flex items-center justify-between"
+          style={{ borderTop:'1px solid rgba(61,30,40,0.8)' }}>
+          <span className="text-sm font-semibold text-white">Estimated Total</span>
+          <span className="font-bold" style={{ color:'#E8B86D' }}>
+            ₹{quoteTotal.toLocaleString('en-IN')}
+          </span>
+        </div>
+        <p className="text-[11px] mt-1" style={{ color:'#9C7A82' }}>
+          {hasUnpriced
+            ? 'Some items are priced on request — we\'ll confirm the final amount.'
+            : 'Indicative estimate. We\'ll confirm the final amount before payment.'}
+        </p>
       </div>
+
+      {/* Availability warning for the chosen date */}
+      {form.eventDate && availability?.length > 0 && (
+        <div className="mb-4 p-3 rounded-xl"
+          style={{ background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.3)' }}>
+          <p className="text-xs font-semibold mb-1" style={{ color:'#fca5a5' }}>
+            Limited availability on this date
+          </p>
+          {availability.map(a => (
+            <p key={a.name} className="text-[11px]" style={{ color:'#fca5a5' }}>
+              {a.name}: you asked for {a.want}, only {a.free} free
+            </p>
+          ))}
+          <p className="text-[11px] mt-1" style={{ color:'#9C7A82' }}>
+            You can still send the request — we'll confirm or suggest another date.
+          </p>
+        </div>
+      )}
+      {checkingDate && (
+        <p className="text-[11px] mb-3" style={{ color:'#9C7A82' }}>Checking availability…</p>
+      )}
 
       {/* Date */}
       <div className="mb-4">
@@ -166,7 +244,14 @@ export default function BookingFlow({ selectedMachines, onBack }) {
         customerName:  user.displayName || '',
         customerEmail: user.email || '',
         customerPhone: form.customerPhone.trim(),
-        machines:      machines.map(m => ({ id: m.id, name: m.name, qty: m.qty })),
+        machines:      machines.map(m => ({
+          id:    m.id,
+          name:  m.name,
+          qty:   m.qty,
+          // Snapshot the rate so a later price change doesn't rewrite history
+          price: m.rate != null && m.rate !== '' ? Number(m.rate) : null,
+        })),
+        estimatedTotal: quoteTotal || null,
         addons:        form.addons,
         eventDate:     form.eventDate,
         eventLocation: form.eventLocation,

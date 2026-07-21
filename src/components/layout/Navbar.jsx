@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Menu, X, LogOut, ChevronDown, LayoutDashboard, Shield } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { logout } from '../../firebase/auth'
+import NotificationBell from './NotificationBell'
 import toast from 'react-hot-toast'
 
 const NAV_LINKS = [
@@ -125,6 +126,8 @@ export default function Navbar() {
                 Admin
               </Link>
             )}
+
+            {user && <NotificationBell />}
 
             {user ? (
               <div className="relative" ref={userDropRef}>

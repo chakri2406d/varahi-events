@@ -119,9 +119,16 @@ export default function EquipmentCard({ machine, selected, qty, onSelect, onQtyC
       {/* Content */}
       <div className="p-4">
         <div className="flex items-start justify-between mb-1">
-          <h3 className="font-semibold text-base" style={{ color: selected ? '#F0D9A8' : '#F5EDE8' }}>
-            {machine.name}
-          </h3>
+          <div>
+            <h3 className="font-semibold text-base" style={{ color: selected ? '#F0D9A8' : '#F5EDE8' }}>
+              {machine.name}
+            </h3>
+            <p className="text-sm font-semibold mt-0.5" style={{ color: '#C9933A' }}>
+              {machine.rate != null && machine.rate !== ''
+                ? `₹${Number(machine.rate).toLocaleString('en-IN')} / unit`
+                : 'Price on request'}
+            </p>
+          </div>
           {selected && (
             <motion.div
               initial={{ opacity: 0, scale: 0 }}

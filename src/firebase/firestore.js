@@ -1,9 +1,13 @@
 import {
-  collection, doc, addDoc, updateDoc, deleteDoc,
+  collection, doc, addDoc, setDoc, updateDoc, deleteDoc,
   getDoc, getDocs, query, where, orderBy, limit,
-  serverTimestamp, onSnapshot, writeBatch, Timestamp,
+  serverTimestamp, onSnapshot, writeBatch, Timestamp, runTransaction,
 } from 'firebase/firestore'
 import { db } from './config'
+
+// Statuses that actually hold equipment on a date (a cancelled or merely
+// requested booking does not reserve stock).
+export const HOLDING_STATUSES = ['confirmed', 'event_started', 'completed']
 
 /* ═══════════════════════════════════════════════════════════════
    MACHINES
@@ -234,6 +238,163 @@ export const listenBookings = (callback) =>
   })
 
 /* ═══════════════════════════════════════════════════════════════
+   AVAILABILITY  (double-booking prevention)
+═══════════════════════════════════════════════════════════════ */
+
+// How much of each machine is already committed on a given date.
+// Returns a Map: machineId -> units booked that day.
+export const getCommittedQtyForDate = async (dateStr, ignoreBookingId = null) => {
+  const committed = new Map()
+  if (!dateStr) return committed
+
+  const snap = await getDocs(query(collection(db, 'bookings'), where('eventDate', '==', dateStr)))
+  snap.docs.forEach(d => {
+    if (d.id === ignoreBookingId) return
+    const b = d.data()
+    if (!HOLDING_STATUSES.includes(b.status)) return
+    ;(b.machines || []).forEach(m => {
+      const id = m.id || m.name
+      if (!id) return
+      committed.set(id, (committed.get(id) || 0) + Number(m.qty || 1))
+    })
+  })
+  return committed
+}
+
+// Availability snapshot for a date: [{ id, name, total, booked, free }]
+export const getDateAvailability = async (dateStr, ignoreBookingId = null) => {
+  const [machines, committed] = await Promise.all([
+    getMachines(),
+    getCommittedQtyForDate(dateStr, ignoreBookingId),
+  ])
+  return machines.map(m => {
+    const total  = Number(m.totalQty ?? m.availableQty ?? 0)
+    const booked = Number(committed.get(m.id) || 0)
+    return { id: m.id, name: m.name, total, booked, free: Math.max(0, total - booked) }
+  })
+}
+
+// Returns [] when the booking can be confirmed, otherwise a list of clashes.
+// Call this BEFORE confirming a booking so equipment is never double-committed.
+export const findBookingConflicts = async (booking) => {
+  if (!booking?.eventDate || !Array.isArray(booking.machines) || !booking.machines.length) return []
+  const availability = await getDateAvailability(booking.eventDate, booking.id)
+  const byId = new Map(availability.map(a => [a.id, a]))
+
+  const conflicts = []
+  booking.machines.forEach(m => {
+    const id   = m.id || m.name
+    const want = Number(m.qty || 1)
+    const info = byId.get(id)
+    if (!info) return                       // machine no longer in inventory
+    if (want > info.free) {
+      conflicts.push({ name: m.name || info.name, requested: want, free: info.free, total: info.total })
+    }
+  })
+  return conflicts
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   INVOICE NUMBERING  (sequential, transaction-safe)
+═══════════════════════════════════════════════════════════════ */
+
+// Atomically issues the next invoice number and caches it on the booking so
+// the same booking always shows the same number.
+export const getInvoiceNumber = async (booking) => {
+  if (booking?.invoiceNo) return booking.invoiceNo
+  if (!booking?.id) return null
+
+  const counterRef = doc(db, 'counters', 'invoices')
+  const bookingRef = doc(db, 'bookings', booking.id)
+
+  const next = await runTransaction(db, async (tx) => {
+    const snap    = await tx.get(counterRef)
+    const current = snap.exists() ? Number(snap.data().value || 0) : 0
+    const value   = current + 1
+    tx.set(counterRef, { value, updatedAt: serverTimestamp() }, { merge: true })
+    tx.update(bookingRef, { invoiceNo: value })
+    return value
+  })
+  return next
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CANCELLATION
+═══════════════════════════════════════════════════════════════ */
+
+// Cancellation charge based on how close to the event we are.
+// >48h: free · 24-48h: 50% · <24h: no refund.
+export const cancellationCharge = (booking) => {
+  const total = Number(booking?.totalAmount || 0)
+  if (!booking?.eventDate) return { pct: 0, amount: 0, label: 'No cancellation charge' }
+  const hours = (new Date(booking.eventDate).getTime() - Date.now()) / 36e5
+  if (isNaN(hours))  return { pct: 0,   amount: 0,           label: 'No cancellation charge' }
+  if (hours >= 48)   return { pct: 0,   amount: 0,           label: 'Free cancellation (more than 48 hours before the event)' }
+  if (hours >= 24)   return { pct: 50,  amount: total * 0.5, label: '50% charge applies (within 48 hours of the event)' }
+  return               { pct: 100, amount: total,      label: 'No refund (within 24 hours of the event)' }
+}
+
+export const cancelBooking = async (bookingId, { reason = '', by = 'customer' } = {}) => {
+  const ref  = doc(db, 'bookings', bookingId)
+  const snap = await getDoc(ref)
+  if (!snap.exists()) throw new Error('Booking not found')
+  const b = { id: snap.id, ...snap.data() }
+
+  if (b.status === 'cancelled') throw new Error('This booking is already cancelled')
+  if (b.status === 'completed') throw new Error('A completed event cannot be cancelled')
+  if (b.status === 'event_started') throw new Error('This event has already started')
+
+  const charge = cancellationCharge(b)
+  await updateDoc(ref, {
+    status:             'cancelled',
+    cancelledAt:        new Date().toISOString(),
+    cancelledBy:        by,
+    cancellationReason: reason,
+    cancellationCharge: charge.amount,
+    updatedAt:          serverTimestamp(),
+  })
+
+  // Free the date back up on the public calendar
+  try {
+    const evs = await getDocs(query(collection(db, 'events'), where('bookingId', '==', bookingId)))
+    await Promise.all(evs.docs.map(d => deleteDoc(doc(db, 'events', d.id))))
+  } catch { /* calendar cleanup is best-effort */ }
+
+  return charge
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CREW / OPERATORS
+═══════════════════════════════════════════════════════════════ */
+export const getCrew = async () => {
+  const snap = await getDocs(query(collection(db, 'crew'), orderBy('name')))
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+}
+
+export const addCrew = (data) =>
+  addDoc(collection(db, 'crew'), { ...data, active: true, createdAt: serverTimestamp() })
+
+export const updateCrew = (id, data) => updateDoc(doc(db, 'crew', id), data)
+export const deleteCrew = (id) => deleteDoc(doc(db, 'crew', id))
+
+// Who is already assigned elsewhere on this date (prevents clashing a person).
+export const getCrewCommitmentsForDate = async (dateStr, ignoreBookingId = null) => {
+  const busy = new Map()
+  if (!dateStr) return busy
+  const snap = await getDocs(query(collection(db, 'bookings'), where('eventDate', '==', dateStr)))
+  snap.docs.forEach(d => {
+    if (d.id === ignoreBookingId) return
+    const b = d.data()
+    if (!HOLDING_STATUSES.includes(b.status)) return
+    ;(b.crew || []).forEach(c => busy.set(c.id, b.customerName || 'another event'))
+  })
+  return busy
+}
+
+export const assignCrew = (bookingId, crew) =>
+  updateDoc(doc(db, 'bookings', bookingId), { crew, updatedAt: serverTimestamp() })
+
+/* ═══════════════════════════════════════════════════════════════
    PUBLIC EVENTS
 ═══════════════════════════════════════════════════════════════ */
 export const getPublicEvents = async () => {
@@ -329,6 +490,54 @@ export const getUserNotifications = async (uid) => {
 
 export const markNotificationRead = (id) =>
   updateDoc(doc(db, 'notifications', id), { read: true })
+
+// Live unread-aware feed for the navbar bell. No composite index needed —
+// we filter by userId only and sort client-side.
+export const listenUserNotifications = (uid, callback) =>
+  onSnapshot(
+    query(collection(db, 'notifications'), where('userId', '==', uid)),
+    snap => {
+      const rows = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+        .slice(0, 30)
+      callback(rows)
+    },
+    () => callback([]),
+  )
+
+export const markAllNotificationsRead = async (uid) => {
+  const snap = await getDocs(query(collection(db, 'notifications'), where('userId', '==', uid)))
+  const unread = snap.docs.filter(d => !d.data().read)
+  if (!unread.length) return
+  const batch = writeBatch(db)
+  unread.forEach(d => batch.update(doc(db, 'notifications', d.id), { read: true }))
+  await batch.commit()
+}
+
+/* Human-friendly messages for each booking status change. Called by the admin
+   screens so the customer is told what happened without any paid service. */
+const STATUS_MESSAGES = {
+  confirmed:     { title: 'Booking confirmed 🎉', body: 'Your booking is confirmed. We look forward to your event!' },
+  payment_pending:{ title: 'Payment received',    body: 'We received your payment details and are verifying them.' },
+  event_started: { title: 'Event started',        body: 'Your event has been marked as started. Have a great time!' },
+  completed:     { title: 'Event completed',      body: 'Thanks for choosing Varahi Events. Your invoice is ready to download.' },
+  cancelled:     { title: 'Booking cancelled',    body: 'Your booking has been cancelled. Contact us if this was unexpected.' },
+}
+
+export const notifyBookingStatus = async (booking, status) => {
+  if (!booking?.userId) return          // walk-in bookings have no account
+  const msg = STATUS_MESSAGES[status]
+  if (!msg) return
+  try {
+    await addNotification(booking.userId, {
+      title:     msg.title,
+      body:      msg.body,
+      status,
+      bookingId: booking.id,
+    })
+  } catch { /* never block the admin action because a notification failed */ }
+}
 
 /* ═══════════════════════════════════════════════════════════════
    STATS (admin)

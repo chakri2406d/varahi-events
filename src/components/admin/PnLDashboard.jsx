@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { TrendingUp, TrendingDown, DollarSign, BarChart3, Wallet, Smartphone } from 'lucide-react'
+import { TrendingUp, TrendingDown, DollarSign, BarChart3, Wallet, Smartphone, Download } from 'lucide-react'
 import { getAllBookings, getExpenses, paymentBreakdown } from '../../firebase/firestore'
 import { MONTHS } from '../../utils/dateUtils'
+import { downloadCsv } from '../../utils/exportCsv'
+import toast from 'react-hot-toast'
 
 export default function PnLDashboard() {
   const [bookings,  setBookings]  = useState([])
@@ -63,6 +65,21 @@ export default function PnLDashboard() {
 
   const maxVal = Math.max(...monthly.map(m => Math.max(m.rev, m.exp)), 1)
 
+  // Export the monthly breakdown shown in the chart below as a CSV Excel can open directly
+  const handleExport = () => {
+    const rows = monthly.map(m => ({
+      Month: m.label,
+      Revenue: m.rev,
+      Cash: m.cashRev,
+      Online: m.onlineRev,
+      Expenses: m.exp,
+      Profit: m.profit,
+    }))
+    const year = new Date().getFullYear()
+    downloadCsv(`Varahi-PnL-${year}.csv`, rows)
+    toast.success('CSV exported')
+  }
+
   const StatCard = ({ label, value, icon:Icon, color, bg, sign='' }) => (
     <div className="glass-card p-5">
       <div className={`w-10 h-10 rounded-xl ${bg} flex items-center justify-center mb-3`}>
@@ -84,9 +101,16 @@ export default function PnLDashboard() {
 
   return (
     <div>
-      <motion.div initial={{ opacity:0, y:16 }} animate={{ opacity:1, y:0 }} className="mb-6">
-        <h1 className="font-display font-bold text-2xl text-white">P & L Dashboard</h1>
-        <p className="text-brand-muted text-sm">Revenue vs expenses — last 6 months</p>
+      <motion.div initial={{ opacity:0, y:16 }} animate={{ opacity:1, y:0 }}
+        className="mb-6 flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="font-display font-bold text-2xl text-white">P & L Dashboard</h1>
+          <p className="text-brand-muted text-sm">Revenue vs expenses — last 6 months</p>
+        </div>
+        <button onClick={handleExport}
+          className="btn-primary text-sm py-2 px-4 flex items-center gap-2">
+          <Download size={15} /> Export CSV
+        </button>
       </motion.div>
 
       {/* Revenue split cards */}

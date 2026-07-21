@@ -4,12 +4,14 @@ import { Link } from 'react-router-dom'
 import { Calendar, MapPin, Zap, Download, Clock, Package, IndianRupee, CheckCircle, QrCode, X } from 'lucide-react'
 import QRCode from 'react-qr-code'
 import { useAuth } from '../context/AuthContext'
-import { listenUserBookings, paymentBreakdown } from '../firebase/firestore'
+import { listenUserBookings, paymentBreakdown, getInvoiceNumber,
+         cancelBooking, cancellationCharge } from '../firebase/firestore'
+import toast from 'react-hot-toast'
 import { generateInvoice } from '../utils/invoiceGenerator'
 import { STATUS_LABELS, STATUS_COLORS, ADDONS } from '../utils/constants'
 import { fmt, relativeDay } from '../utils/dateUtils'
 
-function BookingCard({ booking, index, onShowQr }) {
+function BookingCard({ booking, index, onShowQr, onInvoice, onCancel }) {
   const pb    = paymentBreakdown(booking)
   const paid  = pb.total
   const total = Number(booking.totalAmount || 0)
@@ -194,11 +196,22 @@ function BookingCard({ booking, index, onShowQr }) {
       {/* Invoice download */}
       {(booking.status === 'confirmed' || booking.status === 'completed') && (
         <button
-          onClick={() => generateInvoice(booking)}
+          onClick={() => onInvoice(booking)}
           className="flex items-center gap-2 w-full justify-center py-2 rounded-xl text-xs transition-all"
           style={{ border:'1px solid rgba(61,30,40,0.8)', color:'#9C7A82' }}
         >
           <Download size={13}/> Download Invoice
+        </button>
+      )}
+
+      {/* Cancel booking — only before the event has started */}
+      {['requested','payment_pending','confirmed'].includes(booking.status) && (
+        <button
+          onClick={() => onCancel(booking)}
+          className="flex items-center gap-2 w-full justify-center py-2 rounded-xl text-xs transition-all mt-2"
+          style={{ border:'1px solid rgba(239,68,68,0.3)', color:'#fca5a5' }}
+        >
+          <X size={13}/> Cancel Booking
         </button>
       )}
     </motion.div>
@@ -211,6 +224,34 @@ export default function Dashboard() {
   const [loading,    setLoading]    = useState(true)
   const [activeTab,  setActiveTab]  = useState('all')
   const [qrBooking,  setQrBooking]  = useState(null)   // booking whose QR codes are shown
+  const [cancelTarget, setCancelTarget] = useState(null)
+  const [cancelling,   setCancelling]   = useState(false)
+  const [cancelReason, setCancelReason] = useState('')
+
+  // Issue a sequential invoice number (once per booking) before building the PDF
+  const handleInvoice = async (booking) => {
+    try {
+      const no = await getInvoiceNumber(booking)
+      generateInvoice({ ...booking, invoiceNo: no ?? booking.invoiceNo })
+    } catch {
+      generateInvoice(booking)   // numbering failed — still give them the PDF
+    }
+  }
+
+  const handleConfirmCancel = async () => {
+    if (!cancelTarget) return
+    setCancelling(true)
+    try {
+      await cancelBooking(cancelTarget.id, { reason: cancelReason.trim(), by: 'customer' })
+      toast.success('Booking cancelled')
+      setCancelTarget(null)
+      setCancelReason('')
+    } catch (e) {
+      toast.error(e.message || 'Could not cancel. Please contact us.')
+    } finally {
+      setCancelling(false)
+    }
+  }
 
   useEffect(() => {
     if (!user) return
@@ -347,7 +388,8 @@ export default function Dashboard() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {filtered.map((booking, i) => (
-                <BookingCard key={booking.id} booking={booking} index={i} onShowQr={setQrBooking}/>
+                <BookingCard key={booking.id} booking={booking} index={i} onShowQr={setQrBooking}
+                  onInvoice={handleInvoice} onCancel={setCancelTarget}/>
               ))}
             </div>
           )}
@@ -356,6 +398,65 @@ export default function Dashboard() {
 
       {/* Event QR codes modal */}
       <AnimatePresence>
+        {cancelTarget && (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
+          >
+            <div className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              onClick={() => !cancelling && setCancelTarget(null)} />
+            <motion.div
+              className="relative w-full max-w-sm rounded-2xl p-5"
+              style={{ background:'#1A0810', border:'1px solid rgba(61,30,40,0.9)' }}
+              initial={{ scale:0.95, opacity:0 }} animate={{ scale:1, opacity:1 }} exit={{ scale:0.95, opacity:0 }}
+            >
+              <h3 className="text-white font-semibold mb-2">Cancel this booking?</h3>
+
+              {(() => {
+                const charge = cancellationCharge(cancelTarget)
+                return (
+                  <div className="rounded-xl p-3 mb-3"
+                    style={{ background: charge.pct ? 'rgba(239,68,68,0.08)' : 'rgba(34,197,94,0.08)',
+                             border: `1px solid ${charge.pct ? 'rgba(239,68,68,0.3)' : 'rgba(34,197,94,0.3)'}` }}>
+                    <p className="text-xs font-semibold" style={{ color: charge.pct ? '#fca5a5' : '#86efac' }}>
+                      {charge.label}
+                    </p>
+                    {charge.amount > 0 && (
+                      <p className="text-xs mt-1" style={{ color:'#fca5a5' }}>
+                        Cancellation charge: ₹{Math.round(charge.amount).toLocaleString('en-IN')}
+                      </p>
+                    )}
+                  </div>
+                )
+              })()}
+
+              <label className="label-dark">Reason (optional)</label>
+              <textarea className="input-dark resize-none" rows={2}
+                placeholder="Let us know why, so we can improve"
+                value={cancelReason} onChange={e => setCancelReason(e.target.value)} />
+
+              <div className="flex gap-2 mt-4">
+                <button
+                  onClick={() => setCancelTarget(null)}
+                  disabled={cancelling}
+                  className="flex-1 py-2.5 rounded-xl text-sm"
+                  style={{ border:'1px solid rgba(61,30,40,0.8)', color:'#9C7A82' }}
+                >
+                  Keep Booking
+                </button>
+                <button
+                  onClick={handleConfirmCancel}
+                  disabled={cancelling}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-semibold"
+                  style={{ background:'rgba(239,68,68,0.15)', border:'1px solid rgba(239,68,68,0.4)', color:'#fca5a5' }}
+                >
+                  {cancelling ? 'Cancelling…' : 'Yes, Cancel'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
         {qrBooking && (
           <motion.div
             className="fixed inset-0 z-50 flex items-center justify-center p-4"

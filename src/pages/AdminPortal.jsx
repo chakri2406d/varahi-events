@@ -1,6 +1,6 @@
 import { Routes, Route, NavLink, useNavigate } from 'react-router-dom'
 import { useState, lazy, Suspense } from 'react'
-import { LayoutDashboard, CalendarCheck, Package, DollarSign, TrendingUp, LogOut, Menu, Shield, ReceiptText, CalendarDays, Globe, ScanLine } from 'lucide-react'
+import { LayoutDashboard, CalendarCheck, Package, DollarSign, TrendingUp, LogOut, Menu, Shield, ReceiptText, CalendarDays, Globe, ScanLine, Users } from 'lucide-react'
 import { logout } from '../firebase/auth'
 import { useAuth } from '../context/AuthContext'
 import { setAdminWantsPublic } from '../utils/adminView'
@@ -12,6 +12,7 @@ import BookingManagement   from '../components/admin/BookingManagement'
 // and the rest of the admin portal works even before it's installed.
 const QrScanner = lazy(() => import('../components/admin/QrScanner'))
 import MachineManagement   from '../components/admin/MachineManagement'
+import CrewManagement      from '../components/admin/CrewManagement'
 import PricingManagement   from '../components/admin/PricingManagement'
 import ExpenseManagement   from '../components/admin/ExpenseManagement'
 import PnLDashboard        from '../components/admin/PnLDashboard'
@@ -23,6 +24,7 @@ const NAV = [
   { to:'/admin/bookings', icon:CalendarCheck,   label:'Bookings'            },
   { to:'/admin/events',   icon:CalendarDays,    label:'Events'              },
   { to:'/admin/machines', icon:Package,         label:'Equipment'           },
+  { to:'/admin/crew',     icon:Users,           label:'Crew'                },
   { to:'/admin/pricing',  icon:ReceiptText,     label:'Pricing'             },
   { to:'/admin/expenses', icon:DollarSign,      label:'Expenses'            },
   { to:'/admin/pnl',      icon:TrendingUp,      label:'P & L'               },
@@ -150,6 +152,7 @@ export default function AdminPortal() {
             <Route path="bookings" element={<BookingManagement/>} />
             <Route path="events"   element={<EventManagement/>}   />
             <Route path="machines" element={<MachineManagement/>} />
+            <Route path="crew"     element={<CrewManagement/>}    />
             <Route path="pricing"  element={<PricingManagement/>} />
             <Route path="expenses" element={<ExpenseManagement/>} />
             <Route path="pnl"      element={<PnLDashboard/>}      />

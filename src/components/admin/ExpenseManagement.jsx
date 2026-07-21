@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Plus, Trash2, IndianRupee } from 'lucide-react'
+import { Plus, Trash2, IndianRupee, Download } from 'lucide-react'
 import { addExpense, getExpenses, deleteExpense } from '../../firebase/firestore'
 import { EXPENSE_CATEGORIES } from '../../utils/constants'
 import { fmt } from '../../utils/dateUtils'
+import { downloadCsv } from '../../utils/exportCsv'
 import toast from 'react-hot-toast'
 
 const EMPTY = { category:'fuel', description:'', amount:'', date: new Date().toISOString().split('T')[0] }
@@ -43,11 +44,33 @@ export default function ExpenseManagement() {
   const filtered = filter === 'all' ? expenses : expenses.filter(e => e.category === filter)
   const total    = filtered.reduce((s, e) => s + (Number(e.amount) || 0), 0)
 
+  // Export the currently filtered list — use the admin-chosen date, falling back to createdAt
+  const handleExport = () => {
+    const rows = filtered.map(e => {
+      const cat = EXPENSE_CATEGORIES.find(c => c.id === e.category)
+      return {
+        Date: e.date ? new Date(e.date) : e.createdAt,
+        Category: cat?.label || e.category,
+        Description: e.description,
+        Amount: Number(e.amount) || 0,
+      }
+    })
+    downloadCsv('Varahi-Expenses.csv', rows)
+    toast.success('CSV exported')
+  }
+
   return (
     <div>
-      <motion.div initial={{ opacity:0, y:16 }} animate={{ opacity:1, y:0 }} className="mb-6">
-        <h1 className="font-display font-bold text-2xl text-white">Expenses</h1>
-        <p className="text-brand-muted text-sm">Track all operational costs</p>
+      <motion.div initial={{ opacity:0, y:16 }} animate={{ opacity:1, y:0 }}
+        className="mb-6 flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="font-display font-bold text-2xl text-white">Expenses</h1>
+          <p className="text-brand-muted text-sm">Track all operational costs</p>
+        </div>
+        <button onClick={handleExport}
+          className="btn-primary text-sm py-2 px-4 flex items-center gap-2">
+          <Download size={15} /> Export CSV
+        </button>
       </motion.div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

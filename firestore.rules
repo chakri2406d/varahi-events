@@ -41,8 +41,12 @@ service cloud.firestore {
                      && resource.data.userId == request.auth.uid
                      && request.resource.data.diff(resource.data).affectedKeys()
                           .hasOnly(['status','paymentProofUrl','transactionId',
-                                    'amountPaid','paymentSubmittedAt','updatedAt'])
-                     && request.resource.data.status == 'payment_pending');
+                                    'amountPaid','paymentSubmittedAt','updatedAt',
+                                    'invoiceNo','cancelledAt','cancelledBy',
+                                    'cancellationReason','cancellationCharge'])
+                     && (request.resource.data.status == 'payment_pending'
+                         || request.resource.data.status == 'cancelled'
+                         || request.resource.data.status == resource.data.status));
       allow delete: if isAdmin();
     }
 
@@ -54,6 +58,14 @@ service cloud.firestore {
 
     // ── Expenses / P&L — admin only ────────────────────────────────
     match /expenses/{id} { allow read, write: if isAdmin(); }
+
+    // ── Crew / operators — admin only ──────────────────────────────
+    match /crew/{id} { allow read, write: if isAdmin(); }
+
+    // ── Invoice counter ────────────────────────────────────────────
+    // A customer downloading their own invoice needs to increment this,
+    // so signed-in users may read/write it. It holds no private data.
+    match /counters/{id} { allow read, write: if isSignedIn(); }
 
     // ── Notifications — signed-in users ────────────────────────────
     // Notifications — a user only sees/edits their own; admin can send any.

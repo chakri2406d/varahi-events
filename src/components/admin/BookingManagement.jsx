@@ -1,11 +1,33 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Check, X, Eye, Search, Calendar, MapPin, ExternalLink,
-         IndianRupee, Receipt, CheckCircle, AlertCircle, Wallet, Plus, UserPlus, Phone } from 'lucide-react'
-import { listenBookings, updateBookingStatus, addPublicEvent, recordPayment, paymentBreakdown, createOfflineBooking } from '../../firebase/firestore'
+         IndianRupee, Receipt, CheckCircle, AlertCircle, Wallet, Plus, UserPlus, Phone,
+         MessageCircle } from 'lucide-react'
+import { listenBookings, updateBookingStatus, addPublicEvent, recordPayment, paymentBreakdown,
+         createOfflineBooking, findBookingConflicts, notifyBookingStatus } from '../../firebase/firestore'
 import { STATUS_LABELS, STATUS_COLORS, BOOKING_STATUSES, PAYMENT_METHODS } from '../../utils/constants'
 import { fmt } from '../../utils/dateUtils'
 import toast from 'react-hot-toast'
+
+// Builds a wa.me link with a ready-written status update for the customer.
+// Completely free — it just opens WhatsApp with the text pre-filled.
+const waLink = (b) => {
+  const digits = String(b.customerPhone || '').replace(/\D/g, '')
+  const phone  = digits.length === 10 ? `91${digits}` : digits
+  const lines = [
+    `Hi ${b.customerName || ''}, this is Varahi Events.`,
+    '',
+    b.status === 'confirmed'
+      ? `Your booking for ${b.eventDate || 'your event'} is CONFIRMED.`
+      : `Update on your booking for ${b.eventDate || 'your event'}: ${STATUS_LABELS[b.status] || b.status}.`,
+    b.eventLocation ? `Location: ${b.eventLocation}` : '',
+    b.totalAmount ? `Total: Rs. ${Number(b.totalAmount).toLocaleString('en-IN')}` : '',
+    b.amountPaid ? `Received: Rs. ${Number(b.amountPaid).toLocaleString('en-IN')}` : '',
+    '',
+    'Thank you for choosing Varahi Events!',
+  ].filter(Boolean)
+  return `https://wa.me/${phone}?text=${encodeURIComponent(lines.join('\n'))}`
+}
 
 export default function BookingManagement() {
   const [bookings,  setBookings]  = useState([])
@@ -91,6 +113,17 @@ export default function BookingManagement() {
 
     setConfirming(true)
     try {
+      // 0. Make sure the equipment isn't already committed on this date.
+      const conflicts = await findBookingConflicts(selected)
+      if (conflicts.length) {
+        const detail = conflicts
+          .map(c => `${c.name}: need ${c.requested}, only ${c.free} free`)
+          .join(' · ')
+        toast.error(`Not enough equipment on ${selected.eventDate} — ${detail}`, { duration: 7000 })
+        setConfirming(false)
+        return
+      }
+
       // 1. Update booking status to confirmed
       await updateBookingStatus(selected.id, BOOKING_STATUSES.CONFIRMED, {
         totalAmount:     total,
@@ -114,6 +147,7 @@ export default function BookingManagement() {
         })
       }
 
+      await notifyBookingStatus(selected, BOOKING_STATUSES.CONFIRMED)
       toast.success(`✅ Booking confirmed! Date ${selected.eventDate} blocked on calendar.`)
       setSelected(null)
     } catch (err) {
@@ -509,6 +543,20 @@ export default function BookingManagement() {
                   <p className="text-sm" style={{ color: '#9C7A82' }}>{selected.customerEmail}</p>
                   {selected.customerPhone && (
                     <p className="text-sm" style={{ color: '#9C7A82' }}>{selected.customerPhone}</p>
+                  )}
+
+                  {/* Free WhatsApp message — opens WhatsApp with a pre-written
+                      update. No paid API, you just tap send. */}
+                  {selected.customerPhone && (
+                    <a
+                      href={waLink(selected)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-2 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold transition-all"
+                      style={{ background:'rgba(37,211,102,0.12)', border:'1px solid rgba(37,211,102,0.35)', color:'#6ee7a0' }}
+                    >
+                      <MessageCircle size={13}/> Message on WhatsApp
+                    </a>
                   )}
                 </div>
 

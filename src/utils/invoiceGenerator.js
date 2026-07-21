@@ -43,7 +43,11 @@ export const generateInvoice = (booking) => {
   }
 
   /* ── DERIVE DATA ─────────────────────────────────────────────────────────── */
-  const invoiceNo = booking.invoiceNo || booking.bookingId || booking.id?.slice(0, 8).toUpperCase() || 'DRAFT'
+  // A sequential number is issued by getInvoiceNumber() before we get here and
+  // cached on the booking; fall back to the booking reference if unavailable.
+  const invoiceNo = booking.invoiceNo
+    ? `VE-${String(booking.invoiceNo).padStart(4, '0')}`
+    : (booking.bookingId || booking.id?.slice(0, 8).toUpperCase() || 'DRAFT')
   const invoiceDate = safeDate(booking.createdAt?.toDate?.() || new Date(), 'dd MMM yyyy', format(new Date(), 'dd MMM yyyy'))
   const dueDate = safeDate(booking.dueDate || booking.eventDate)
 
@@ -65,9 +69,13 @@ export const generateInvoice = (booking) => {
     items = [{ name: 'Event Services & Equipment', qty: 1, rate: t || null, amount: t || null }]
   }
 
+  // totalAmount is what the customer actually owes (GST-inclusive). We derive
+  // the pre-tax subtotal from it so Subtotal + GST always equals the Total.
   const lineTotal = items.reduce((s, i) => s + (i.amount || 0), 0)
   const total     = Number(booking.totalAmount || lineTotal || 0)
-  const subtotal  = lineTotal || total
+  const gstRate   = Number(BUSINESS_INFO.gstRate || 0)
+  const subtotal  = gstRate > 0 ? total / (1 + gstRate / 100) : (lineTotal || total)
+  const gstAmount = gstRate > 0 ? total - subtotal : 0
   const amountPaid = Number(booking.amountPaid || 0)
   const balanceDue = Math.max(0, total - amountPaid)
 
@@ -96,6 +104,9 @@ export const generateInvoice = (booking) => {
   text(MUTED); doc.setFont('helvetica', 'normal'); doc.setFontSize(8)
   doc.text(BUSINESS_INFO.city, cx, 31)
   doc.text(`${BUSINESS_INFO.phone}, ${BUSINESS_INFO.phone2}  |  ${BUSINESS_INFO.email}`, cx, 35.5)
+  if (BUSINESS_INFO.gstin) {
+    doc.text(`GSTIN: ${BUSINESS_INFO.gstin}`, cx, 39.5)
+  }
 
   // INVOICE title
   text(MAROON); doc.setFont('helvetica', 'bold'); doc.setFontSize(28)
@@ -205,7 +216,7 @@ export const generateInvoice = (booking) => {
     y += opts.gap || 6
   }
   totalRow('Subtotal', money(subtotal))
-  totalRow('Tax (0%)', money(0))
+  totalRow(gstRate > 0 ? `GST (${gstRate}%)` : 'Tax (0%)', money(gstAmount))
   draw(LINE); doc.setLineWidth(0.4); doc.line(lblX - 34, y - 2, R, y - 2)
   y += 1
   totalRow('TOTAL', money(total), { bold: true, size: 12, color: MAROON, valColor: MAROON, gap: 7 })
