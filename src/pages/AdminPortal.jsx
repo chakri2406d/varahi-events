@@ -1,6 +1,6 @@
 import { Routes, Route, NavLink, useNavigate } from 'react-router-dom'
 import { useState, lazy, Suspense } from 'react'
-import { LayoutDashboard, CalendarCheck, Package, DollarSign, TrendingUp, LogOut, Menu, Shield, ReceiptText, CalendarDays, Globe, ScanLine, Users, CalendarClock, Inbox, Star, Image } from 'lucide-react'
+import { LayoutDashboard, CalendarCheck, Package, DollarSign, TrendingUp, LogOut, Menu, Shield, ReceiptText, CalendarDays, Globe, ScanLine, Users, CalendarClock, Inbox, Star, Image, PieChart, Database } from 'lucide-react'
 import { logout } from '../firebase/auth'
 import { useAuth } from '../context/AuthContext'
 import { setAdminWantsPublic } from '../utils/adminView'
@@ -21,6 +21,8 @@ import TodayView           from '../components/admin/TodayView'
 import InquiryManagement   from '../components/admin/InquiryManagement'
 import ReviewManagement    from '../components/admin/ReviewManagement'
 import GalleryManagement   from '../components/admin/GalleryManagement'
+import Analytics           from '../components/admin/Analytics'
+import DataBackup          from '../components/admin/DataBackup'
 
 const NAV = [
   { to:'/admin/today',     icon:CalendarClock,   label:'Today'               },
@@ -33,9 +35,11 @@ const NAV = [
   { to:'/admin/pricing',  icon:ReceiptText,     label:'Pricing'             },
   { to:'/admin/expenses', icon:DollarSign,      label:'Expenses'            },
   { to:'/admin/pnl',      icon:TrendingUp,      label:'P & L'               },
+  { to:'/admin/analytics',icon:PieChart,        label:'Analytics'           },
   { to:'/admin/inquiries',icon:Inbox,           label:'Inquiries'           },
   { to:'/admin/reviews',  icon:Star,            label:'Reviews'             },
   { to:'/admin/gallery',  icon:Image,           label:'Gallery'             },
+  { to:'/admin/backup',   icon:Database,        label:'Backup'              },
 ]
 
 export default function AdminPortal() {
@@ -165,9 +169,11 @@ export default function AdminPortal() {
             <Route path="pricing"  element={<PricingManagement/>} />
             <Route path="expenses" element={<ExpenseManagement/>} />
             <Route path="pnl"      element={<PnLDashboard/>}      />
+            <Route path="analytics" element={<Analytics/>}        />
             <Route path="inquiries" element={<InquiryManagement/>} />
             <Route path="reviews"   element={<ReviewManagement/>}  />
             <Route path="gallery"   element={<GalleryManagement/>} />
+            <Route path="backup"    element={<DataBackup/>}        />
           </Routes>
         </main>
       </div>

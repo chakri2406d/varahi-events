@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import { TrendingUp, CalendarCheck, Clock, Package, DollarSign, Check, Eye, Wallet, Smartphone } from 'lucide-react'
 import { getDashboardStats, listenBookings, updateBookingStatus, addPublicEvent,
          findBookingConflicts, notifyBookingStatus,
-         cancelBooking, cancellationCharge } from '../../firebase/firestore'
+         cancelBooking, cancellationCharge, blockBookingDates } from '../../firebase/firestore'
 import { STATUS_LABELS, STATUS_COLORS, BOOKING_STATUSES } from '../../utils/constants'
 import { fmt } from '../../utils/dateUtils'
 import toast from 'react-hot-toast'
@@ -64,17 +64,9 @@ export default function AdminDashboard() {
 
       // Block date on calendar
       if (b.eventDate) {
-        // Block the date publicly WITHOUT leaking the customer's name, address
-        // or equipment list. Matches what Booking Management writes.
-        await addPublicEvent({
-          name:      'Booked — Unavailable',
-          date:      b.eventDate,
-          location:  '',
-          category:  'corporate',
-          public:    true,
-          blocked:   true,
-          bookingId: b.id,
-        })
+        // Blocks every day the booking spans, WITHOUT leaking the customer's
+        // name, address or equipment list.
+        await blockBookingDates(b)
       }
 
       await notifyBookingStatus(b, BOOKING_STATUSES.CONFIRMED)

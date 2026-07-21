@@ -406,15 +406,52 @@ export const deleteReview = (id) => deleteDoc(doc(db, 'reviews', id))
 
 // How much of each machine is already committed on a given date.
 // Returns a Map: machineId -> units booked that day.
+// Longest event we support. Bounds the availability query so it stays cheap
+// instead of scanning every booking ever made.
+const MAX_EVENT_DAYS = 30
+
+const shiftDate = (dateStr, days) => {
+  const d = new Date(`${dateStr}T00:00:00`)
+  if (isNaN(d.getTime())) return dateStr
+  d.setDate(d.getDate() + days)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+// Every date a booking occupies, inclusive of its end date.
+export const bookingDates = (booking) => {
+  const start = booking?.eventDate
+  if (!start) return []
+  const end = booking.eventEndDate && booking.eventEndDate > start ? booking.eventEndDate : start
+  const out = []
+  let cur = start
+  for (let i = 0; i <= MAX_EVENT_DAYS && cur <= end; i++) {
+    out.push(cur)
+    cur = shiftDate(cur, 1)
+  }
+  return out
+}
+
+// How much of each machine is committed on a given date. A multi-day booking
+// holds its equipment for EVERY day in its range, so we can't just match on
+// eventDate — we pull bookings that could still be running and check the span.
 export const getCommittedQtyForDate = async (dateStr, ignoreBookingId = null) => {
   const committed = new Map()
   if (!dateStr) return committed
 
-  const snap = await getDocs(query(collection(db, 'bookings'), where('eventDate', '==', dateStr)))
+  // Anything starting within the last MAX_EVENT_DAYS could still cover dateStr.
+  const snap = await getDocs(query(
+    collection(db, 'bookings'),
+    where('eventDate', '>=', shiftDate(dateStr, -MAX_EVENT_DAYS)),
+    where('eventDate', '<=', dateStr),
+  ))
+
   snap.docs.forEach(d => {
     if (d.id === ignoreBookingId) return
     const b = d.data()
     if (!HOLDING_STATUSES.includes(b.status)) return
+    // Only counts if the booking's span actually covers this date
+    const end = b.eventEndDate && b.eventEndDate > b.eventDate ? b.eventEndDate : b.eventDate
+    if (dateStr < b.eventDate || dateStr > end) return
     ;(b.machines || []).forEach(m => {
       const id = m.id || m.name
       if (!id) return
@@ -439,22 +476,37 @@ export const getDateAvailability = async (dateStr, ignoreBookingId = null) => {
 
 // Returns [] when the booking can be confirmed, otherwise a list of clashes.
 // Call this BEFORE confirming a booking so equipment is never double-committed.
+// Checks EVERY day the booking spans — a 3-day event must have its equipment
+// free on all three days, not just the first.
 export const findBookingConflicts = async (booking) => {
   if (!booking?.eventDate || !Array.isArray(booking.machines) || !booking.machines.length) return []
-  const availability = await getDateAvailability(booking.eventDate, booking.id)
-  const byId = new Map(availability.map(a => [a.id, a]))
 
-  const conflicts = []
-  booking.machines.forEach(m => {
-    const id   = m.id || m.name
-    const want = Number(m.qty || 1)
-    const info = byId.get(id)
-    if (!info) return                       // machine no longer in inventory
-    if (want > info.free) {
-      conflicts.push({ name: m.name || info.name, requested: want, free: info.free, total: info.total })
-    }
-  })
-  return conflicts
+  const days = bookingDates(booking)
+  const worst = new Map()   // machineId -> the tightest shortage across the span
+
+  for (const day of days) {
+    const availability = await getDateAvailability(day, booking.id)
+    const byId = new Map(availability.map(a => [a.id, a]))
+
+    booking.machines.forEach(m => {
+      const id   = m.id || m.name
+      const want = Number(m.qty || 1)
+      const info = byId.get(id)
+      if (!info) return                       // machine no longer in inventory
+      if (want > info.free) {
+        const prev = worst.get(id)
+        // Keep the day with the least availability — that's the blocking one
+        if (!prev || info.free < prev.free) {
+          worst.set(id, {
+            name: m.name || info.name, requested: want,
+            free: info.free, total: info.total,
+            date: days.length > 1 ? day : undefined,
+          })
+        }
+      }
+    })
+  }
+  return [...worst.values()]
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -595,6 +647,25 @@ export const getAllEvents = async () => {
     .sort((a, b) => new Date(a.date) - new Date(b.date))
 }
 
+// Blocks EVERY date a booking spans on the public calendar. A 3-day event that
+// only blocked its first day would leave days 2-3 bookable by someone else.
+export const blockBookingDates = async (booking) => {
+  const days = bookingDates(booking)
+  await Promise.all(days.map(date =>
+    addDoc(collection(db, 'events'), {
+      name:      'Booked — Unavailable',
+      date,
+      location:  '',
+      category:  'corporate',
+      public:    true,
+      blocked:   true,
+      bookingId: booking.id,
+      createdAt: serverTimestamp(),
+    })
+  ))
+  return days.length
+}
+
 export const addPublicEvent = (data) =>
   addDoc(collection(db, 'events'), { ...data, createdAt: serverTimestamp() })
 
@@ -612,6 +683,30 @@ export const addExpense = (data) =>
 
 export const getExpenses = async () => {
   const snap = await getDocs(query(collection(db, 'expenses'), orderBy('createdAt', 'desc')))
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+}
+
+// Bounded variants for dashboards that only chart a recent window. Avoids
+// re-downloading years of history to render a 6-month view.
+export const getRecentBookings = async (months = 6) => {
+  const since = new Date()
+  since.setMonth(since.getMonth() - months)
+  const snap = await getDocs(query(
+    collection(db, 'bookings'),
+    where('createdAt', '>=', Timestamp.fromDate(since)),
+    orderBy('createdAt', 'desc'),
+  ))
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+}
+
+export const getRecentExpenses = async (months = 6) => {
+  const since = new Date()
+  since.setMonth(since.getMonth() - months)
+  const snap = await getDocs(query(
+    collection(db, 'expenses'),
+    where('createdAt', '>=', Timestamp.fromDate(since)),
+    orderBy('createdAt', 'desc'),
+  ))
   return snap.docs.map(d => ({ id: d.id, ...d.data() }))
 }
 
@@ -684,7 +779,7 @@ const STATUS_MESSAGES = {
   confirmed:     { title: 'Booking confirmed 🎉', body: 'Your booking is confirmed. We look forward to your event!' },
   payment_pending:{ title: 'Payment received',    body: 'We received your payment details and are verifying them.' },
   event_started: { title: 'Event started',        body: 'Your event has been marked as started. Have a great time!' },
-  completed:     { title: 'Event completed',      body: 'Thanks for choosing Varahi Events. Your invoice is ready to download.' },
+  completed:     { title: 'Event completed',      body: 'Thanks for choosing Varahi Events! Your invoice is ready, and we\'d love a quick review of how it went.' },
   cancelled:     { title: 'Booking cancelled',    body: 'Your booking has been cancelled. Contact us if this was unexpected.' },
 }
 

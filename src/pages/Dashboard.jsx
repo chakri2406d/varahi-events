@@ -193,6 +193,17 @@ function BookingCard({ booking, index, onShowQr, onInvoice, onCancel }) {
         </button>
       )}
 
+      {/* Review nudge — customers won't leave one unless we ask */}
+      {booking.status === 'completed' && (
+        <Link
+          to={`/booking/${booking.id}`}
+          className="flex items-center gap-2 w-full justify-center py-2 rounded-xl text-xs font-medium transition-all mb-2"
+          style={{ background:'rgba(201,147,58,0.12)', border:'1px solid rgba(201,147,58,0.35)', color:'#E8B86D' }}
+        >
+          ⭐ How did we do? Leave a review
+        </Link>
+      )}
+
       {/* Full details */}
       <Link
         to={`/booking/${booking.id}`}

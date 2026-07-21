@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { TrendingUp, TrendingDown, DollarSign, BarChart3, Wallet, Smartphone, Download } from 'lucide-react'
-import { getAllBookings, getExpenses, paymentBreakdown } from '../../firebase/firestore'
+import { getRecentBookings, getRecentExpenses, paymentBreakdown } from '../../firebase/firestore'
 import { MONTHS } from '../../utils/dateUtils'
 import { downloadCsv } from '../../utils/exportCsv'
 import toast from 'react-hot-toast'
@@ -13,7 +13,9 @@ export default function PnLDashboard() {
   const [period,    setPeriod]    = useState('monthly') // monthly | yearly
 
   useEffect(() => {
-    Promise.all([getAllBookings(), getExpenses()])
+    // Only the window this chart actually shows (plus a month of slack for
+    // backdated expenses) — not the entire history of the business.
+    Promise.all([getRecentBookings(7), getRecentExpenses(7)])
       .then(([b, e]) => { setBookings(b); setExpenses(e) })
       .catch(() => {})
       .finally(() => setLoading(false))

@@ -7,7 +7,7 @@ import { listenBookings, updateBookingStatus, addPublicEvent, recordPayment, pay
          createOfflineBooking, findBookingConflicts, notifyBookingStatus,
          cancelBooking, cancellationCharge, recordRefund, approveBalancePayment,
          rejectBalancePayment, getCrew, assignCrew, getCrewCommitmentsForDate,
-         getMachines } from '../../firebase/firestore'
+         getMachines, blockBookingDates } from '../../firebase/firestore'
 import { STATUS_LABELS, STATUS_COLORS, BOOKING_STATUSES, PAYMENT_METHODS } from '../../utils/constants'
 import { fmt } from '../../utils/dateUtils'
 import toast from 'react-hot-toast'
@@ -160,17 +160,8 @@ export default function BookingManagement() {
       // public:true so anyone (logged-out visitors and customers) can read it
       // and see the date is taken. blocked:true tells the calendar to render it
       // as an unavailable day and to hide the customer's private details.
-      if (selected.eventDate) {
-        await addPublicEvent({
-          name:      'Booked — Unavailable',
-          date:      selected.eventDate,
-          location:  '',
-          category:  'corporate',
-          public:    true,
-          blocked:   true,
-          bookingId: selected.id,
-        })
-      }
+      // Blocks every day the booking spans, not just the start date
+      if (selected.eventDate) await blockBookingDates(selected)
 
       await notifyBookingStatus(selected, BOOKING_STATUSES.CONFIRMED)
       toast.success(`✅ Booking confirmed! Date ${selected.eventDate} blocked on calendar.`)

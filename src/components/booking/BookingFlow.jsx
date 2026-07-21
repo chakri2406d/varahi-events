@@ -20,6 +20,7 @@ export default function BookingFlow({ selectedMachines, onBack, initialDate }) {
   const [bookingId,   setBookingId]   = useState(null)
   const [form, setForm] = useState({
     eventDate:     initialDate || '',
+    eventEndDate:  '',
     eventTime:     '',
     setupTime:     '',
     eventLocation: '',
@@ -148,6 +149,23 @@ export default function BookingFlow({ selectedMachines, onBack, initialDate }) {
         />
       </div>
 
+      {/* Optional end date for multi-day events (e.g. a 3-day wedding) */}
+      <div className="mb-4">
+        <label className="label-dark">
+          <Calendar size={12} className="inline mr-1" />End Date (for multi-day events)
+        </label>
+        <input
+          type="date"
+          className="input-dark"
+          min={form.eventDate || undefined}
+          value={form.eventEndDate}
+          onChange={e => setForm(f => ({ ...f, eventEndDate: e.target.value }))}
+        />
+        <p className="text-xs mt-1" style={{ color: '#9C7A82' }}>
+          Leave blank for a single-day event. Equipment is reserved for every day in the range.
+        </p>
+      </div>
+
       {/* Event + setup time — critical for scheduling crew and transport */}
       <div className="grid grid-cols-2 gap-3 mb-4">
         <div>
@@ -202,6 +220,8 @@ export default function BookingFlow({ selectedMachines, onBack, initialDate }) {
         onClick={() => {
           if (!form.eventDate)     return toast.error('Please select an event date')
           if (!form.eventTime)     return toast.error('Please select the event start time')
+          if (form.eventEndDate && form.eventEndDate < form.eventDate)
+            return toast.error('End date cannot be before the start date')
           if (!form.eventLocation) return toast.error('Please enter event location')
           if (!/^[+\d][\d\s-]{8,}$/.test(form.customerPhone.trim()))
             return toast.error('Please enter a valid contact number')
@@ -280,6 +300,8 @@ export default function BookingFlow({ selectedMachines, onBack, initialDate }) {
         estimatedTotal: quoteTotal || null,
         addons:        form.addons,
         eventDate:     form.eventDate,
+        // Only store an end date when it's genuinely multi-day
+        eventEndDate:  form.eventEndDate && form.eventEndDate > form.eventDate ? form.eventEndDate : '',
         eventTime:     form.eventTime,
         setupTime:     form.setupTime,
         eventLocation: form.eventLocation,
