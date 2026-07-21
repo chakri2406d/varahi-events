@@ -62,7 +62,7 @@ export default function AdminPortal() {
   const Sidebar = () => (
     <aside className="flex flex-col h-full bg-brand-surface border-r border-brand-border w-64">
       {/* Logo */}
-      <div className="p-5 border-b border-brand-border">
+      <div className="p-5 border-b border-brand-border flex-shrink-0">
         <div className="flex items-center gap-3">
           <img
             src="/varahi_events.jpg"
@@ -77,8 +77,10 @@ export default function AdminPortal() {
         </div>
       </div>
 
-      {/* Nav */}
-      <nav className="flex-1 p-3 space-y-1">
+      {/* Nav — must scroll on its own. Without min-h-0 + overflow-y-auto the
+          15 links grow past the viewport and shove the logout button (below)
+          off the bottom of the screen, making it unreachable. */}
+      <nav className="flex-1 min-h-0 overflow-y-auto p-3 space-y-1">
         {NAV.map(({ to, icon:Icon, label, end }) => (
           <NavLink
             key={to}
@@ -99,8 +101,8 @@ export default function AdminPortal() {
         ))}
       </nav>
 
-      {/* User + logout */}
-      <div className="p-3 border-t border-brand-border">
+      {/* User + logout — pinned to the bottom, never scrolled away */}
+      <div className="p-3 border-t border-brand-border flex-shrink-0">
         <button
           onClick={handleViewSite}
           className="flex items-center gap-2 w-full px-3 py-2 mb-1 rounded-xl text-brand-muted text-sm hover:text-white hover:bg-white/5 transition-colors"
@@ -154,7 +156,14 @@ export default function AdminPortal() {
             <Shield size={14} className="text-amber-400"/>
             <span className="text-white font-bold text-sm font-display">Admin Portal</span>
           </div>
-          <div className="w-9"/>
+          {/* Logout reachable directly on mobile, without opening the menu */}
+          <button
+            onClick={handleLogout}
+            aria-label="Log out"
+            className="p-2 rounded-xl border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors"
+          >
+            <LogOut size={16}/>
+          </button>
         </header>
 
         <main className="flex-1 overflow-y-auto p-4 sm:p-6">
