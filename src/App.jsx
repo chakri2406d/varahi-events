@@ -23,8 +23,14 @@ import Gallery    from './pages/Gallery'
 import Contact    from './pages/Contact'
 import Login      from './pages/Login'
 import Dashboard  from './pages/Dashboard'
+import BookingDetail from './pages/BookingDetail'
+import Profile    from './pages/Profile'
+import FAQ        from './pages/FAQ'
+import Terms      from './pages/Terms'
+import Privacy    from './pages/Privacy'
 import AdminPortal from './pages/AdminPortal'
 import NotFound   from './pages/NotFound'
+import InstallPrompt from './components/layout/InstallPrompt'
 
 // ── Protected Route ──────────────────────────────────────────────────────────
 function Protected({ children }) {
@@ -76,6 +82,7 @@ export default function App() {
   return (
     <>
     <ScrollToTop />
+    <InstallPrompt />
     <Routes>
       {/* Public */}
       <Route path="/"          element={<HomeEntry />} />
@@ -84,10 +91,15 @@ export default function App() {
       <Route path="/calendar"  element={<PublicLayout><Calendar /></PublicLayout>} />
       <Route path="/gallery"   element={<PublicLayout><Gallery /></PublicLayout>} />
       <Route path="/contact"   element={<PublicLayout><Contact /></PublicLayout>} />
+      <Route path="/faq"       element={<PublicLayout><FAQ /></PublicLayout>} />
+      <Route path="/terms"     element={<PublicLayout><Terms /></PublicLayout>} />
+      <Route path="/privacy"   element={<PublicLayout><Privacy /></PublicLayout>} />
       <Route path="/login"     element={<Login />} />
 
       {/* Protected */}
       <Route path="/dashboard" element={<Protected><PublicLayout><Dashboard /></PublicLayout></Protected>} />
+      <Route path="/booking/:id" element={<Protected><PublicLayout><BookingDetail /></PublicLayout></Protected>} />
+      <Route path="/profile"   element={<Protected><PublicLayout><Profile /></PublicLayout></Protected>} />
 
       {/* Admin */}
       <Route path="/admin/*"   element={<AdminRoute><AdminPortal /></AdminRoute>} />

@@ -43,7 +43,8 @@ service cloud.firestore {
                           .hasOnly(['status','paymentProofUrl','transactionId',
                                     'amountPaid','paymentSubmittedAt','updatedAt',
                                     'invoiceNo','cancelledAt','cancelledBy',
-                                    'cancellationReason','cancellationCharge'])
+                                    'cancellationReason','cancellationCharge',
+                                    'pendingPayment'])
                      && (request.resource.data.status == 'payment_pending'
                          || request.resource.data.status == 'cancelled'
                          || request.resource.data.status == resource.data.status));
@@ -61,6 +62,22 @@ service cloud.firestore {
 
     // ── Crew / operators — admin only ──────────────────────────────
     match /crew/{id} { allow read, write: if isAdmin(); }
+
+    // ── Contact inquiries ──────────────────────────────────────────
+    // Anyone (including logged-out visitors) may submit; only admin reads.
+    match /inquiries/{id} {
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
+    }
+
+    // ── Reviews ────────────────────────────────────────────────────
+    // Public can read approved reviews. A signed-in customer may submit one
+    // (forced unapproved). Only admin can approve, edit or delete.
+    match /reviews/{id} {
+      allow read:   if true;
+      allow create: if isSignedIn() && request.resource.data.approved == false;
+      allow update, delete: if isAdmin();
+    }
 
     // ── Invoice counter ────────────────────────────────────────────
     // A customer downloading their own invoice needs to increment this,

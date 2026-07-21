@@ -104,6 +104,17 @@ export default function Footer() {
           <p className="text-xs" style={{ color:'#9C7A82' }}>
             © {new Date().getFullYear()} Varahi Events. All rights reserved.
           </p>
+          <div className="flex items-center gap-4">
+            {[
+              { to:'/faq',     label:'FAQ'     },
+              { to:'/terms',   label:'Terms'   },
+              { to:'/privacy', label:'Privacy' },
+            ].map(({ to, label }) => (
+              <Link key={to} to={to} className="text-xs hover:text-white transition-colors" style={{ color:'#9C7A82' }}>
+                {label}
+              </Link>
+            ))}
+          </div>
           <p className="text-xs flex items-center gap-1" style={{ color:'#9C7A82' }}>
             Made with <Heart size={11} style={{ color:'#E8718A', fill:'#E8718A', margin:'0 2px' }} /> in Hyderabad
           </p>

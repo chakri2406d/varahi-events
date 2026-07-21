@@ -5,6 +5,7 @@ import Hero        from '../components/home/Hero'
 import Stats       from '../components/home/Stats'
 import Works       from '../components/home/Works'
 import FutureEvents from '../components/home/FutureEvents'
+import Testimonials from '../components/home/Testimonials'
 import CallToAction from '../components/home/CallToAction'
 
 export default function Home() {
@@ -30,6 +31,7 @@ export default function Home() {
       <Stats />
       <Works />
       <FutureEvents />
+      <Testimonials />
       <CallToAction />
     </motion.div>
   )

@@ -2,15 +2,36 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Phone, Mail, MapPin, MessageCircle, Send, Instagram } from 'lucide-react'
 import { BUSINESS_INFO } from '../utils/constants'
+import { addInquiry } from '../firebase/firestore'
 import toast from 'react-hot-toast'
 
 export default function Contact() {
   const [form, setForm] = useState({ name:'', phone:'', email:'', message:'', eventDate:'', eventType:'' })
   const [sent, setSent] = useState(false)
+  const [saving, setSaving] = useState(false)
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }))
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    setSaving(true)
+    // Save the inquiry FIRST so a lead is never lost, even if the customer's
+    // browser blocks the WhatsApp redirect or they close the tab too soon.
+    try {
+      await addInquiry({
+        name:      form.name,
+        phone:     form.phone,
+        email:     form.email,
+        message:   form.message,
+        eventDate: form.eventDate,
+        eventType: form.eventType,
+      })
+    } catch (err) {
+      // Never block the customer on a save failure — still send them to WhatsApp.
+      console.error('Failed to save inquiry:', err)
+    } finally {
+      setSaving(false)
+    }
+
     // WhatsApp redirect with pre-filled message
     const msg = encodeURIComponent(
       `Hi Varahi Events! 🎪\n\nName: ${form.name}\nPhone: ${form.phone}\nEvent Date: ${form.eventDate}\nEvent Type: ${form.eventType}\n\nMessage: ${form.message}`
@@ -148,8 +169,8 @@ export default function Contact() {
                   <textarea className="input-dark resize-none" rows={4} placeholder="Tell us about your event, requirements, expected attendance…" value={form.message} onChange={set('message')}/>
                 </div>
 
-                <button type="submit" className="btn-primary w-full justify-center py-3.5">
-                  <Send size={16}/> Send via WhatsApp
+                <button type="submit" disabled={saving} className="btn-primary w-full justify-center py-3.5 disabled:opacity-60 disabled:cursor-not-allowed">
+                  <Send size={16}/> {saving ? 'Saving…' : 'Send via WhatsApp'}
                 </button>
               </form>
             )}

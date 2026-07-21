@@ -238,6 +238,123 @@ export const listenBookings = (callback) =>
   })
 
 /* ═══════════════════════════════════════════════════════════════
+   SLOT HOLD  (the "held for 30 minutes" promise, actually enforced)
+═══════════════════════════════════════════════════════════════ */
+
+// Milliseconds left on the payment hold, or 0 once it has lapsed.
+export const holdRemainingMs = (booking) => {
+  const until = booking?.holdUntil?.toDate ? booking.holdUntil.toDate().getTime()
+              : booking?.holdUntil ? new Date(booking.holdUntil).getTime()
+              : null
+  if (!until || isNaN(until)) return 0
+  return Math.max(0, until - Date.now())
+}
+
+// A hold only matters while the customer still hasn't paid.
+export const isHoldExpired = (booking) =>
+  !!booking && booking.status === 'requested' && holdRemainingMs(booking) === 0
+
+/* ═══════════════════════════════════════════════════════════════
+   BALANCE PAYMENTS  (customer pays the rest after the advance)
+═══════════════════════════════════════════════════════════════ */
+
+// The customer submits proof of a further payment. We DON'T touch the money
+// fields here — the admin verifies and calls recordPayment(), which is the
+// only path that changes what the business has actually collected.
+export const submitBalancePayment = async (bookingId, { amount, transactionId, proofUrl = null }) => {
+  const amt = Number(amount)
+  if (!amt || amt <= 0) throw new Error('Enter a valid amount')
+  if (!String(transactionId || '').trim()) throw new Error('Enter the transaction ID')
+
+  await updateDoc(doc(db, 'bookings', bookingId), {
+    pendingPayment: {
+      amount:        amt,
+      transactionId: String(transactionId).trim(),
+      proofUrl,
+      submittedAt:   new Date().toISOString(),
+    },
+    updatedAt: serverTimestamp(),
+  })
+}
+
+// Admin accepts the submitted balance payment.
+export const approveBalancePayment = async (bookingId) => {
+  const ref  = doc(db, 'bookings', bookingId)
+  const snap = await getDoc(ref)
+  if (!snap.exists()) throw new Error('Booking not found')
+  const p = snap.data().pendingPayment
+  if (!p) throw new Error('No payment awaiting approval')
+
+  await recordPayment(bookingId, {
+    amount:    p.amount,
+    method:    'online',
+    reference: p.transactionId || '',
+  })
+  await updateDoc(ref, { pendingPayment: null, updatedAt: serverTimestamp() })
+}
+
+export const rejectBalancePayment = (bookingId) =>
+  updateDoc(doc(db, 'bookings', bookingId), { pendingPayment: null, updatedAt: serverTimestamp() })
+
+/* ═══════════════════════════════════════════════════════════════
+   INQUIRIES  (contact form — saved BEFORE the WhatsApp handoff so a
+   lead is never lost if WhatsApp fails to open)
+═══════════════════════════════════════════════════════════════ */
+export const addInquiry = (data) =>
+  addDoc(collection(db, 'inquiries'), {
+    ...data,
+    handled:   false,
+    createdAt: serverTimestamp(),
+  })
+
+export const getInquiries = async () => {
+  const snap = await getDocs(query(collection(db, 'inquiries'), orderBy('createdAt', 'desc')))
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }))
+}
+
+export const markInquiryHandled = (id, handled = true) =>
+  updateDoc(doc(db, 'inquiries', id), { handled })
+
+export const deleteInquiry = (id) => deleteDoc(doc(db, 'inquiries', id))
+
+/* ═══════════════════════════════════════════════════════════════
+   REVIEWS  (customer feedback after a completed event)
+═══════════════════════════════════════════════════════════════ */
+
+// Reviews start unapproved so nothing appears publicly without the admin's OK.
+export const addReview = (data) =>
+  addDoc(collection(db, 'reviews'), {
+    ...data,
+    approved:  false,
+    createdAt: serverTimestamp(),
+  })
+
+// Public: only approved reviews. No composite index needed (sorted in JS).
+export const getApprovedReviews = async () => {
+  const snap = await getDocs(query(collection(db, 'reviews'), where('approved', '==', true)))
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+}
+
+export const getAllReviews = async () => {
+  const snap = await getDocs(collection(db, 'reviews'))
+  return snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+}
+
+export const getReviewForBooking = async (bookingId) => {
+  const snap = await getDocs(query(collection(db, 'reviews'), where('bookingId', '==', bookingId)))
+  return snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() }
+}
+
+export const approveReview = (id, approved = true) =>
+  updateDoc(doc(db, 'reviews', id), { approved })
+
+export const deleteReview = (id) => deleteDoc(doc(db, 'reviews', id))
+
+/* ═══════════════════════════════════════════════════════════════
    AVAILABILITY  (double-booking prevention)
 ═══════════════════════════════════════════════════════════════ */
 

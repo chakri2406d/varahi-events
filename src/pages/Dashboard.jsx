@@ -193,6 +193,15 @@ function BookingCard({ booking, index, onShowQr, onInvoice, onCancel }) {
         </button>
       )}
 
+      {/* Full details */}
+      <Link
+        to={`/booking/${booking.id}`}
+        className="flex items-center gap-2 w-full justify-center py-2 rounded-xl text-xs font-medium transition-all mb-2"
+        style={{ background:'rgba(139,26,44,0.15)', border:'1px solid rgba(139,26,44,0.4)', color:'#E8B86D' }}
+      >
+        View Full Details →
+      </Link>
+
       {/* Invoice download */}
       {(booking.status === 'confirmed' || booking.status === 'completed') && (
         <button

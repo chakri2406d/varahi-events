@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
-import { Calendar, MapPin, FileText, Zap, CheckCircle, Phone } from 'lucide-react'
+import { Calendar, MapPin, FileText, Zap, CheckCircle, Phone, Clock } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { createBooking, getDateAvailability } from '../../firebase/firestore'
 import { ADDONS } from '../../utils/constants'
@@ -11,7 +11,7 @@ import toast from 'react-hot-toast'
 
 const STEPS = ['Details', 'Add-ons', 'Request', 'Payment']
 
-export default function BookingFlow({ selectedMachines, onBack }) {
+export default function BookingFlow({ selectedMachines, onBack, initialDate }) {
   const { user } = useAuth()
   const navigate  = useNavigate()
 
@@ -19,7 +19,9 @@ export default function BookingFlow({ selectedMachines, onBack }) {
   const [requesting,  setRequesting]  = useState(false)
   const [bookingId,   setBookingId]   = useState(null)
   const [form, setForm] = useState({
-    eventDate:     '',
+    eventDate:     initialDate || '',
+    eventTime:     '',
+    setupTime:     '',
     eventLocation: '',
     customerPhone: '',
     notes:         '',
@@ -146,6 +148,29 @@ export default function BookingFlow({ selectedMachines, onBack }) {
         />
       </div>
 
+      {/* Event + setup time — critical for scheduling crew and transport */}
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        <div>
+          <label className="label-dark"><Clock size={12} className="inline mr-1" />Event Start Time</label>
+          <input
+            type="time"
+            className="input-dark"
+            value={form.eventTime}
+            onChange={e => setForm(f => ({ ...f, eventTime: e.target.value }))}
+          />
+        </div>
+        <div>
+          <label className="label-dark"><Clock size={12} className="inline mr-1" />Setup By</label>
+          <input
+            type="time"
+            className="input-dark"
+            value={form.setupTime}
+            onChange={e => setForm(f => ({ ...f, setupTime: e.target.value }))}
+          />
+          <p className="text-xs mt-1" style={{ color: '#9C7A82' }}>Optional</p>
+        </div>
+      </div>
+
       {/* Contact phone */}
       <div className="mb-4">
         <label className="label-dark"><Phone size={12} className="inline mr-1" />Contact Number</label>
@@ -176,6 +201,7 @@ export default function BookingFlow({ selectedMachines, onBack }) {
       <button
         onClick={() => {
           if (!form.eventDate)     return toast.error('Please select an event date')
+          if (!form.eventTime)     return toast.error('Please select the event start time')
           if (!form.eventLocation) return toast.error('Please enter event location')
           if (!/^[+\d][\d\s-]{8,}$/.test(form.customerPhone.trim()))
             return toast.error('Please enter a valid contact number')
@@ -254,6 +280,8 @@ export default function BookingFlow({ selectedMachines, onBack }) {
         estimatedTotal: quoteTotal || null,
         addons:        form.addons,
         eventDate:     form.eventDate,
+        eventTime:     form.eventTime,
+        setupTime:     form.setupTime,
         eventLocation: form.eventLocation,
         notes:         form.notes,
         totalAmount:   null, // set by admin

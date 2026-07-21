@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import QRCode from 'react-qr-code'
 import { Upload, CheckCircle, Copy, AlertCircle, IndianRupee } from 'lucide-react'
 import { uploadPaymentProof } from '../../firebase/storage'
-import { updateBookingStatus, getBookingById } from '../../firebase/firestore'
+import { updateBookingStatus, getBookingById, holdRemainingMs } from '../../firebase/firestore'
 import { BUSINESS_INFO, BOOKING_STATUSES } from '../../utils/constants'
 import toast from 'react-hot-toast'
 
@@ -30,6 +30,30 @@ export default function PaymentSection({ bookingId }) {
       .catch(() => {})
     return () => { cancelled = true }
   }, [bookingId])
+
+  // ── Real 30-minute slot hold ───────────────────────────────────────────────
+  // The banner used to promise a hold that nothing enforced. Now we read the
+  // booking's holdUntil and tick down; when it lapses we say so plainly.
+  const [holdMs, setHoldMs] = useState(null)
+
+  useEffect(() => {
+    if (!bookingId) return
+    let timer
+    getBookingById(bookingId)
+      .then(b => {
+        if (!b) return
+        const tick = () => setHoldMs(holdRemainingMs(b))
+        tick()
+        timer = setInterval(tick, 1000)
+      })
+      .catch(() => {})
+    return () => clearInterval(timer)
+  }, [bookingId])
+
+  const holdLabel = holdMs == null ? null : (() => {
+    const s = Math.floor(holdMs / 1000)
+    return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+  })()
 
   const upiLink = `upi://pay?pa=${BUSINESS_INFO.upiId}&pn=Varahi+Events&cu=INR`
 
@@ -158,10 +182,17 @@ export default function PaymentSection({ bookingId }) {
 
       {/* Header */}
       <div className="text-center mb-5">
-        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-semibold mb-3"
-          style={{ background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.3)', color: '#86efac' }}>
-          ✓ Slot Held for 30 Minutes
-        </div>
+        {holdMs === null ? null : holdMs > 0 ? (
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-semibold mb-3"
+            style={{ background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.3)', color: '#86efac' }}>
+            ✓ Slot held — {holdLabel} left
+          </div>
+        ) : (
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-semibold mb-3"
+            style={{ background: 'rgba(201,147,58,0.12)', border: '1px solid rgba(201,147,58,0.35)', color: '#E8B86D' }}>
+            Hold expired — submit soon, the date isn't reserved
+          </div>
+        )}
         <h3 className="text-white font-bold text-xl">Complete Your Payment</h3>
         <p className="text-sm mt-1" style={{ color: '#9C7A82' }}>
           Scan QR or use UPI ID · Then fill details below

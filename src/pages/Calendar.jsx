@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ChevronLeft, ChevronRight, Calendar as CalIcon } from 'lucide-react'
 import { listenPublicEvents, getAllBookings } from '../firebase/firestore'
@@ -8,7 +9,10 @@ const CAT_COLORS = { wedding:'#EC4899', dj:'#7C3AED', concert:'#F59E0B', college
 const WEEKDAYS   = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
 
 export default function Calendar() {
+  const navigate = useNavigate()
   const today  = new Date()
+  // Midnight copy of "today" so date comparisons ignore the current time of day.
+  const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate())
   const [year,  setYear]  = useState(today.getFullYear())
   const [month, setMonth] = useState(today.getMonth())
   const [events, setEvents] = useState([])
@@ -55,6 +59,24 @@ export default function Calendar() {
   const prevMonth = () => { if (month===0){setMonth(11);setYear(y=>y-1)}else setMonth(m=>m-1) }
   const nextMonth = () => { if (month===11){setMonth(0);setYear(y=>y+1)}else setMonth(m=>m+1) }
 
+  // Built manually (not toISOString, which shifts by the local UTC offset and
+  // can roll the date to the previous/next day) so the string always matches
+  // the day the customer actually clicked.
+  const toLocalDateStr = (y, m, d) => `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`
+
+  const handleDayClick = (day) => {
+    const cellDate  = new Date(year, month, day)
+    const isPastDay = cellDate < todayMidnight
+    const isBooked  = getBookingsForDay(day).length > 0
+    if (!isPastDay && !isBooked) {
+      // Free future date — send the customer straight into equipment selection.
+      navigate('/equipment', { state: { eventDate: toLocalDateStr(year, month, day) } })
+      return
+    }
+    // Past / blocked dates stay read-only: just toggle the info panel below.
+    setSelected(prev => prev === day ? null : day)
+  }
+
   const cells = []
   for (let i=0; i<firstDay; i++) cells.push(null)
   for (let d=1; d<=daysInMonth; d++) cells.push(d)
@@ -97,20 +119,28 @@ export default function Calendar() {
               const dayBookings = getBookingsForDay(day)
               const isBooked    = dayBookings.length > 0
               const isSelected  = selected === day
+              const cellDate    = new Date(year, month, day)
+              const isPastDay   = cellDate < todayMidnight
+              // Only free, not-yet-happened dates are actionable (book equipment).
+              const isFreeFuture = !isBooked && !isPastDay
               return (
                 <motion.div
                   key={day}
-                  whileHover={{ scale: 1.05 }}
-                  className={`relative rounded-xl p-1.5 min-h-[52px] sm:min-h-[64px] cursor-pointer transition-all border ${
+                  whileHover={isFreeFuture ? { scale: 1.05 } : {}}
+                  className={`relative rounded-xl p-1.5 min-h-[52px] sm:min-h-[64px] transition-all border ${
+                    isFreeFuture ? 'cursor-pointer' : 'cursor-default'
+                  } ${
                     isBooked
                       ? 'bg-red-500/10 border-red-500/40 hover:border-red-500/60'
                       : isToday
                         ? 'bg-brand-violet/20 border-brand-violet/50'
                         : dayEvents.length > 0
                           ? 'bg-brand-surface border-brand-border hover:border-brand-violet/40'
-                          : 'border-transparent hover:bg-brand-surface/50'
+                          : isFreeFuture
+                            ? 'border-transparent hover:bg-brand-gold/10 hover:border-brand-gold/40'
+                            : 'border-transparent opacity-50'
                   }`}
-                  onClick={() => setSelected(isSelected ? null : day)}
+                  onClick={() => handleDayClick(day)}
                 >
                   <span className={`text-xs font-medium ${
                     isBooked ? 'text-red-400' : isToday ? 'text-brand-violetL' : 'text-brand-muted'
@@ -149,6 +179,10 @@ export default function Calendar() {
             <div className="flex items-center gap-1.5">
               <div className="w-3 h-3 rounded-full bg-brand-violet/60 border border-brand-violet"/>
               <span className="text-brand-muted text-xs">Today</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-3 rounded-full border border-dashed border-brand-gold/60 bg-brand-gold/10"/>
+              <span className="text-brand-goldL text-xs">Tap a free date to book</span>
             </div>
           </div>
         </div>

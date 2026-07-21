@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Menu, X, LogOut, ChevronDown, LayoutDashboard, Shield } from 'lucide-react'
+import { Menu, X, LogOut, ChevronDown, LayoutDashboard, Shield, User } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { logout } from '../../firebase/auth'
 import NotificationBell from './NotificationBell'
@@ -167,6 +167,13 @@ export default function Navbar() {
                           className="flex items-center gap-3 px-4 py-2.5 text-sm text-brand-muted hover:text-white hover:bg-white/5 transition-colors"
                         >
                           <LayoutDashboard size={15} /> My Dashboard
+                        </Link>
+                        <Link
+                          onClick={() => setUserOpen(false)}
+                          to="/profile"
+                          className="flex items-center gap-3 px-4 py-2.5 text-sm text-brand-muted hover:text-white hover:bg-white/5 transition-colors"
+                        >
+                          <User size={15} /> My Profile
                         </Link>
                         {isAdmin && (
                           <Link

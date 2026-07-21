@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useNavigate } from 'react-router-dom'
-import { ShoppingCart, X, Zap, Filter } from 'lucide-react'
+import { useNavigate, useLocation } from 'react-router-dom'
+import { ShoppingCart, X, Zap, Filter, Search } from 'lucide-react'
 import { getMachines } from '../firebase/firestore'
 import { useAuth } from '../context/AuthContext'
 import EquipmentCard from '../components/booking/EquipmentCard'
@@ -10,12 +10,17 @@ import BookingFlow   from '../components/booking/BookingFlow'
 export default function Equipment() {
   const { user }    = useAuth()
   const navigate    = useNavigate()
+  // A date tapped on the Calendar page arrives here and pre-fills the booking
+  const location    = useLocation()
+  const presetDate  = location.state?.eventDate || ''
 
   const [machines,  setMachines]  = useState([])
   const [loading,   setLoading]   = useState(true)
   const [selected,  setSelected]  = useState({})
   const [showFlow,  setShowFlow]  = useState(false)
   const [filter,    setFilter]    = useState('all')
+  const [search,    setSearch]    = useState('')
+  const [sortBy,    setSortBy]    = useState('name')
 
   useEffect(() => {
     // Only ever show REAL inventory. Showing placeholder machines here would let
@@ -41,9 +46,31 @@ export default function Equipment() {
 
   const selectedCount = Object.keys(selected).length
 
-  const filtered = filter === 'available'
+  const byStatus = filter === 'available'
     ? machines.filter(m => m.status === 'available')
     : machines
+
+  const q = search.trim().toLowerCase()
+  const bySearch = q
+    ? byStatus.filter(m =>
+        (m.name || '').toLowerCase().includes(q) ||
+        (m.description || '').toLowerCase().includes(q)
+      )
+    : byStatus
+
+  // `rate` is optional — null/undefined means "price on request". Those must
+  // always sort last, never as 0 (which would wrongly make them "cheapest").
+  const filtered = [...bySearch].sort((a, b) => {
+    if (sortBy === 'name') return (a.name || '').localeCompare(b.name || '')
+    const aHas = a.rate != null
+    const bHas = b.rate != null
+    if (!aHas && !bHas) return 0
+    if (!aHas) return 1
+    if (!bHas) return -1
+    return sortBy === 'price-asc' ? a.rate - b.rate : b.rate - a.rate
+  })
+
+  const noResultsFromFilters = machines.length > 0 && filtered.length === 0
 
   const handleProceed = () => {
     if (!user)          { navigate('/login'); return }
@@ -69,23 +96,46 @@ export default function Equipment() {
           <p className="section-subtitle">Select machines, add-ons, and request your slot.</p>
         </motion.div>
 
-        {/* Filter + Cart */}
+        {/* Filter + Search + Sort + Cart */}
         <div className="flex items-center justify-between mb-6 gap-4 flex-wrap">
-          <div className="flex items-center gap-2">
-            <Filter size={15} className="text-brand-muted" />
-            {['all', 'available'].map(f => (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
-                className={`px-4 py-2 rounded-xl text-sm font-medium transition-all capitalize ${
-                  filter === f
-                    ? 'bg-brand-violet text-white'
-                    : 'bg-brand-surface border border-brand-border text-brand-muted hover:text-white'
-                }`}
-              >
-                {f === 'all' ? 'All Equipment' : 'Available Only'}
-              </button>
-            ))}
+          <div className="flex items-center gap-3 flex-wrap flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <Filter size={15} className="text-brand-muted" />
+              {['all', 'available'].map(f => (
+                <button
+                  key={f}
+                  onClick={() => setFilter(f)}
+                  className={`px-4 py-2 rounded-xl text-sm font-medium transition-all capitalize ${
+                    filter === f
+                      ? 'bg-brand-violet text-white'
+                      : 'bg-brand-surface border border-brand-border text-brand-muted hover:text-white'
+                  }`}
+                >
+                  {f === 'all' ? 'All Equipment' : 'Available Only'}
+                </button>
+              ))}
+            </div>
+
+            <div className="relative w-full sm:w-56">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-muted" />
+              <input
+                type="text"
+                className="input-dark pl-9"
+                placeholder="Search equipment…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+
+            <select
+              className="input-dark w-full sm:w-auto"
+              value={sortBy}
+              onChange={e => setSortBy(e.target.value)}
+            >
+              <option value="name">Name (A-Z)</option>
+              <option value="price-asc">Price: Low to High</option>
+              <option value="price-desc">Price: High to Low</option>
+            </select>
           </div>
 
           {/* Cart CTA */}
@@ -106,6 +156,13 @@ export default function Equipment() {
         {loading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {[...Array(8)].map((_, i) => <div key={i} className="skeleton h-72 rounded-2xl" />)}
+          </div>
+        ) : noResultsFromFilters ? (
+          <div className="glass-card p-10 text-center">
+            <p className="text-white font-semibold mb-1">No equipment matches your search</p>
+            <p className="text-brand-muted text-sm">
+              Try a different keyword or clear the filters to see everything we offer.
+            </p>
           </div>
         ) : filtered.length === 0 ? (
           <div className="glass-card p-10 text-center">
@@ -190,7 +247,8 @@ export default function Equipment() {
               {/* Body — this part scrolls, header stays pinned */}
               <div className="flex-1 overflow-y-auto overscroll-contain">
                 <div className="p-5 pb-28">
-                  <BookingFlow selectedMachines={selected} onBack={() => setShowFlow(false)} />
+                  <BookingFlow selectedMachines={selected} onBack={() => setShowFlow(false)}
+                    initialDate={presetDate} />
                 </div>
               </div>
             </motion.div>
