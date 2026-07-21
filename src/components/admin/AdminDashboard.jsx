@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { TrendingUp, CalendarCheck, Clock, Package, DollarSign, Check, Eye, Wallet, Smartphone } from 'lucide-react'
 import { getDashboardStats, listenBookings, updateBookingStatus, addPublicEvent,
-         findBookingConflicts, notifyBookingStatus } from '../../firebase/firestore'
+         findBookingConflicts, notifyBookingStatus,
+         cancelBooking, cancellationCharge } from '../../firebase/firestore'
 import { STATUS_LABELS, STATUS_COLORS, BOOKING_STATUSES } from '../../utils/constants'
 import { fmt } from '../../utils/dateUtils'
 import toast from 'react-hot-toast'
@@ -89,10 +90,18 @@ export default function AdminDashboard() {
 
   // ── Reject booking ─────────────────────────────────────────────────────────
   const handleReject = async (id) => {
-    if (!confirm('Cancel this booking?')) return
+    // cancelBooking() also computes the cancellation charge and deletes the
+    // calendar block. A raw status update would leave that date blocked forever.
+    const b = bookings.find(x => x.id === id)
+    const charge = b ? cancellationCharge(b) : { amount: 0, label: '' }
+    const msg = charge.amount > 0
+      ? `Cancel this booking?\n\n${charge.label}\nCancellation charge: Rs. ${Math.round(charge.amount).toLocaleString('en-IN')}\n\nThe date will be freed on the calendar.`
+      : 'Cancel this booking? The date will be freed on the calendar.'
+    if (!confirm(msg)) return
     try {
-      await updateBookingStatus(id, BOOKING_STATUSES.CANCELLED, { cancelledAt: new Date().toISOString() })
-      toast.success('Booking cancelled.')
+      await cancelBooking(id, { reason: 'Cancelled by admin', by: 'admin' })
+      if (b) await notifyBookingStatus(b, BOOKING_STATUSES.CANCELLED)
+      toast.success('Booking cancelled and date released.')
       loadStats()
     } catch { toast.error('Failed.') }
   }

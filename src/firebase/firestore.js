@@ -44,7 +44,7 @@ export const createBooking = async (data) => {
 // received. It's saved as "confirmed" so it counts toward revenue immediately.
 export const createOfflineBooking = async ({
   customerName, customerPhone = '', eventDate = '', eventLocation = '',
-  totalAmount, amount, method = 'cash', note = '',
+  totalAmount, amount, method = 'cash', note = '', machines = [],
 } = {}) => {
   const amt   = Number(amount) || 0
   const total = Number(totalAmount) || amt
@@ -64,7 +64,9 @@ export const createOfflineBooking = async ({
     eventDate,
     eventLocation,
     userId:          null,
-    machines:        [],
+    // Walk-ins MUST carry their equipment too, otherwise they're invisible to
+    // getCommittedQtyForDate() and silently allow double-booking.
+    machines:        Array.isArray(machines) ? machines : [],
     status:          'confirmed',
     source:          'offline',
     walkIn:          true,
@@ -232,8 +234,52 @@ export const recordPayment = async (bookingId, { amount, method, reference = '',
   return { cashPaid, onlinePaid, total: cashPaid + onlinePaid }
 }
 
-export const listenBookings = (callback) =>
-  onSnapshot(query(collection(db, 'bookings'), orderBy('createdAt', 'desc')), snap => {
+/* ── Refunds ──────────────────────────────────────────────────────────────
+   recordPayment only ever ADDS money. A refund is stored as a negative-amount
+   payment entry so the cash/online totals, P&L and invoices all stay correct
+   without any special-casing elsewhere. */
+export const recordRefund = async (bookingId, { amount, method, reason = '' } = {}) => {
+  const amt = Number(amount)
+  if (!amt || amt <= 0) throw new Error('Enter a valid refund amount')
+  if (method !== 'cash' && method !== 'online') throw new Error('Invalid refund method')
+
+  const ref  = doc(db, 'bookings', bookingId)
+  const snap = await getDoc(ref)
+  if (!snap.exists()) throw new Error('Booking not found')
+
+  const b = snap.data()
+  const { total: alreadyPaid } = paymentBreakdown(b)
+  if (amt > alreadyPaid) throw new Error(`Cannot refund more than the ${alreadyPaid} collected`)
+
+  const payments = normalizePayments(b)
+  payments.push({
+    amount:    -amt,                 // negative = money going back out
+    method,
+    reference: reason.trim() || 'Refund',
+    date:      new Date().toISOString(),
+    addedBy:   'admin',
+    refund:    true,
+  })
+
+  const cashPaid   = payments.filter(p => p.method === 'cash')
+                             .reduce((s, p) => s + Number(p.amount || 0), 0)
+  const onlinePaid = payments.filter(p => p.method === 'online')
+                             .reduce((s, p) => s + Number(p.amount || 0), 0)
+
+  await updateDoc(ref, {
+    payments,
+    cashPaid,
+    onlinePaid,
+    amountPaid: cashPaid + onlinePaid,
+    updatedAt:  serverTimestamp(),
+  })
+  return { cashPaid, onlinePaid, total: cashPaid + onlinePaid }
+}
+
+// Realtime bookings feed. Capped so an admin tab doesn't re-download years of
+// history on every session; raise the cap if you ever need a longer window.
+export const listenBookings = (callback, max = 300) =>
+  onSnapshot(query(collection(db, 'bookings'), orderBy('createdAt', 'desc'), limit(max)), snap => {
     callback(snap.docs.map(d => ({ id: d.id, ...d.data() })))
   })
 

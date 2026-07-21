@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { CalendarCheck, Plus, Trash2, MapPin, Tag } from 'lucide-react'
-import { getAllEvents, addPublicEvent, deletePublicEvent } from '../../firebase/firestore'
+import { CalendarCheck, Plus, Trash2, Pencil, X, MapPin, Tag, AlertTriangle } from 'lucide-react'
+import { getAllEvents, addPublicEvent, updatePublicEvent, deletePublicEvent } from '../../firebase/firestore'
 import toast from 'react-hot-toast'
 
 const CATEGORIES = ['wedding', 'dj', 'concert', 'college', 'corporate']
@@ -9,10 +9,12 @@ const CAT_COLORS  = { wedding:'#EC4899', dj:'#7C3AED', concert:'#F59E0B', colleg
 const EMPTY = { name:'', date:'', location:'', category:'wedding', public: true }
 
 export default function EventManagement() {
-  const [events,  setEvents]  = useState([])
-  const [loading, setLoading] = useState(true)
-  const [form,    setForm]    = useState(EMPTY)
-  const [saving,  setSaving]  = useState(false)
+  const [events,     setEvents]     = useState([])
+  const [loading,    setLoading]    = useState(true)
+  const [form,       setForm]       = useState(EMPTY)
+  const [saving,     setSaving]     = useState(false)
+  const [editingId,  setEditingId]  = useState(null) // null = add mode, else event id being edited
+  const [editingBookingId, setEditingBookingId] = useState(null) // bookingId of the event being edited, if any
 
   const load = () => {
     setLoading(true)
@@ -23,17 +25,42 @@ export default function EventManagement() {
 
   useEffect(() => { load() }, [])
 
-  const handleAdd = async () => {
+  const handleEdit = (ev) => {
+    setEditingId(ev.id)
+    setEditingBookingId(ev.bookingId || null)
+    setForm({
+      name:     ev.name || '',
+      date:     ev.date || '',
+      location: ev.location || '',
+      category: ev.category || 'wedding',
+      public:   ev.public !== false,
+    })
+  }
+
+  const handleCancelEdit = () => {
+    setEditingId(null)
+    setEditingBookingId(null)
+    setForm(EMPTY)
+  }
+
+  const handleSubmit = async () => {
     if (!form.name || !form.date || !form.location) {
       toast.error('Please fill in all fields'); return
     }
     setSaving(true)
     try {
-      await addPublicEvent({ ...form })
-      toast.success('Event added — now visible on calendar!')
+      if (editingId) {
+        await updatePublicEvent(editingId, { ...form })
+        toast.success('Event updated')
+      } else {
+        await addPublicEvent({ ...form })
+        toast.success('Event added — now visible on calendar!')
+      }
+      setEditingId(null)
+      setEditingBookingId(null)
       setForm(EMPTY)
       load()
-    } catch { toast.error('Failed to add event') }
+    } catch { toast.error(editingId ? 'Failed to update event' : 'Failed to add event') }
     finally  { setSaving(false) }
   }
 
@@ -48,6 +75,8 @@ export default function EventManagement() {
     try {
       await deletePublicEvent(id)
       toast.success('Event removed')
+      // If the deleted event was open in the edit form, reset it — it no longer exists.
+      if (editingId === id) handleCancelEdit()
       load()
     } catch { toast.error('Failed to delete') }
   }
@@ -65,11 +94,25 @@ export default function EventManagement() {
         </p>
       </motion.div>
 
-      {/* Add form */}
+      {/* Add / Edit form */}
       <div className="glass-card p-5 mb-6">
         <h2 className="text-white font-semibold text-sm mb-4 flex items-center gap-2">
-          <Plus size={15} className="text-amber-400"/> Add New Event / Block a Date
+          {editingId
+            ? <><Pencil size={15} className="text-amber-400"/> Edit Event</>
+            : <><Plus size={15} className="text-amber-400"/> Add New Event / Block a Date</>
+          }
         </h2>
+
+        {editingId && editingBookingId && (
+          <div className="p-3 rounded-xl mb-4 flex items-start gap-2"
+            style={{ background:'rgba(201,147,58,0.1)', border:'1px solid rgba(201,147,58,0.3)' }}>
+            <AlertTriangle size={14} style={{ color:'#E8B86D' }} className="flex-shrink-0 mt-0.5"/>
+            <p className="text-xs" style={{ color:'#E8B86D' }}>
+              This block is tied to a confirmed booking. Its date should match the booking's event date —
+              changing it here does not move the booking itself.
+            </p>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
           <div>
@@ -123,12 +166,21 @@ export default function EventManagement() {
           <span className="text-brand-muted text-xs">Show on public calendar (visible to customers)</span>
         </label>
 
-        <button onClick={handleAdd} disabled={saving} className="btn-gold text-sm py-2 px-5">
-          {saving
-            ? <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin"/>
-            : <><Plus size={14}/> Add to Calendar</>
-          }
-        </button>
+        <div className="flex items-center gap-3">
+          <button onClick={handleSubmit} disabled={saving} className="btn-gold text-sm py-2 px-5">
+            {saving
+              ? <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin"/>
+              : editingId
+                ? <><Pencil size={14}/> Update Event</>
+                : <><Plus size={14}/> Add to Calendar</>
+            }
+          </button>
+          {editingId && (
+            <button onClick={handleCancelEdit} disabled={saving} className="btn-secondary text-sm py-2 px-5">
+              <X size={14}/> Cancel
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Events list */}
@@ -169,6 +221,10 @@ export default function EventManagement() {
                   booking
                 </span>
               )}
+              <button onClick={() => handleEdit(e)}
+                className="p-1.5 rounded-lg text-brand-muted hover:text-amber-400 hover:bg-amber-500/10 transition-all flex-shrink-0">
+                <Pencil size={14}/>
+              </button>
               <button onClick={() => handleDelete(e.id)}
                 className="p-1.5 rounded-lg text-brand-muted hover:text-red-400 hover:bg-red-500/10 transition-all flex-shrink-0">
                 <Trash2 size={14}/>

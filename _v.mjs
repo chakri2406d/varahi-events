@@ -4,12 +4,11 @@ let bad=0
 for(const f of files){ try{ parse(fs.readFileSync(f,'utf8'),{sourceType:'module',plugins:['jsx']}) }
  catch(e){ bad++; console.log('PARSE FAIL '+f+' :: '+e.message.split('\n')[0]) } }
 console.log(bad?`${bad} PARSE FAILURES`:`All ${files.length} files parsed OK`)
-
 const readSafe=p=>{for(const c of [p,p+'.js',p+'.jsx']){if(fs.existsSync(c)&&fs.statSync(c).isFile())return fs.readFileSync(c,'utf8')}return null}
 let prob=0
 for(const f of files){
-  const src=fs.readFileSync(f,'utf8')
-  let m; const re=/import\s*\{([^}]+)\}\s*from\s*['"](\.[^'"]+)['"]/g
+  const src=fs.readFileSync(f,'utf8'); let m
+  const re=/import\s*\{([^}]+)\}\s*from\s*['"](\.[^'"]+)['"]/g
   while((m=re.exec(src))){
     const names=m[1].split(',').map(s=>s.trim().split(/\s+as\s+/)[0].trim()).filter(Boolean)
     const t=readSafe(path.resolve(path.dirname(f),m[2]))

@@ -1,16 +1,22 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import QRCode from 'react-qr-code'
 import {
   ArrowLeft, Check, Clock, Circle, X, Calendar, MapPin, Download,
-  CalendarPlus, ExternalLink, Users, Package, IndianRupee,
+  CalendarPlus, ExternalLink, Users, Package, IndianRupee, Upload,
+  CheckCircle, Copy, Star,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '../context/AuthContext'
-import { getBookingById, paymentBreakdown } from '../firebase/firestore'
+import {
+  getBookingById, paymentBreakdown, submitBalancePayment,
+  addReview, getReviewForBooking,
+} from '../firebase/firestore'
+import { uploadPaymentProof } from '../firebase/storage'
 import { generateInvoice } from '../utils/invoiceGenerator'
 import { downloadIcs, googleCalendarUrl } from '../utils/calendarExport'
-import { STATUS_LABELS, STATUS_COLORS, ADDONS } from '../utils/constants'
+import { STATUS_LABELS, STATUS_COLORS, ADDONS, BUSINESS_INFO } from '../utils/constants'
 import { fmt, fmtFull } from '../utils/dateUtils'
 
 const STEP_ORDER = ['requested', 'payment_pending', 'confirmed', 'event_started', 'completed']
@@ -128,6 +134,23 @@ export default function BookingDetail() {
   const [loading,  setLoading]  = useState(true)
   const [notFound, setNotFound] = useState(false)
 
+  // ── Pay Remaining Balance ──────────────────────────────────────────────
+  const [balanceOpen,       setBalanceOpen]       = useState(false)
+  const [balanceAmount,     setBalanceAmount]     = useState('')
+  const [balanceTxnId,      setBalanceTxnId]      = useState('')
+  const [balanceFile,       setBalanceFile]       = useState(null)
+  const [balancePreviewUrl, setBalancePreviewUrl] = useState(null)
+  const [balanceSubmitting, setBalanceSubmitting] = useState(false)
+  const [copiedUpi,         setCopiedUpi]         = useState(false)
+
+  // ── Leave a Review ──────────────────────────────────────────────────────
+  const [review,            setReview]            = useState(null)  // existing review, or null
+  const [reviewChecked,     setReviewChecked]     = useState(false) // avoids a form flash before we know
+  const [rating,            setRating]            = useState(0)
+  const [hoverRating,       setHoverRating]       = useState(0)
+  const [comment,           setComment]           = useState('')
+  const [reviewSubmitting,  setReviewSubmitting]  = useState(false)
+
   useEffect(() => {
     if (authLoading) return   // wait for auth to resolve before judging ownership
     if (!user) {
@@ -152,6 +175,28 @@ export default function BookingDetail() {
     return () => { cancelled = true }
   }, [id, user, authLoading])
 
+  // Re-fetches the booking without touching loading/notFound state — used
+  // after a balance payment submission so the "awaiting verification" notice
+  // appears immediately, without a full page reload.
+  const refreshBooking = async () => {
+    try {
+      const b = await getBookingById(id)
+      if (b) setBooking(b)
+    } catch { /* keep showing the stale copy rather than erroring out */ }
+  }
+
+  // A completed booking may already have a review — fetch it once so we can
+  // show the read-only thank-you card instead of the submission form.
+  useEffect(() => {
+    if (!booking || booking.status !== 'completed') return
+    let cancelled = false
+    getReviewForBooking(booking.id)
+      .then(r => { if (!cancelled) setReview(r) })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setReviewChecked(true) })
+    return () => { cancelled = true }
+  }, [booking?.id, booking?.status])
+
   const handleInvoice = () => {
     if (booking) generateInvoice(booking)
   }
@@ -160,6 +205,92 @@ export default function BookingDetail() {
     if (!booking) return
     const ok = downloadIcs(booking)
     if (!ok) toast.error('No event date set for this booking yet')
+  }
+
+  const handleCopyUpi = () => {
+    navigator.clipboard.writeText(BUSINESS_INFO.upiId)
+    setCopiedUpi(true)
+    toast.success('UPI ID copied!')
+    setTimeout(() => setCopiedUpi(false), 2500)
+  }
+
+  const handleBalanceFileSelect = (f) => {
+    if (!f) return
+    if (!f.type.startsWith('image/')) { toast.error('Please upload an image file'); return }
+    if (f.size > 3 * 1024 * 1024) { toast.error('File too large. Max 3MB. Please screenshot and crop tightly.'); return }
+    setBalanceFile(f)
+    setBalancePreviewUrl(URL.createObjectURL(f))
+  }
+
+  const handleBalanceSubmit = async () => {
+    const amt = Number(balanceAmount)
+    if (!amt || amt <= 0) { toast.error('Enter a valid amount'); return }
+    if (amt > balance) {
+      toast.error(`Amount cannot exceed the balance due (₹${balance.toLocaleString('en-IN')})`)
+      return
+    }
+    if (!balanceTxnId.trim()) { toast.error('Enter the Transaction ID / UTR'); return }
+
+    setBalanceSubmitting(true)
+    try {
+      let proofUrl = null
+      if (balanceFile) {
+        // Best-effort — a failed screenshot upload must never block the
+        // payment submission itself (mirrors PaymentSection's behaviour).
+        try {
+          proofUrl = await uploadPaymentProof(booking.id, balanceFile)
+        } catch (uploadErr) {
+          console.warn('Screenshot upload failed:', uploadErr)
+          proofUrl = null
+        }
+      }
+
+      await submitBalancePayment(booking.id, {
+        amount:        amt,
+        transactionId: balanceTxnId.trim(),
+        proofUrl,
+      })
+
+      toast.success('Payment submitted! Admin will verify shortly.')
+      setBalanceOpen(false)
+      setBalanceAmount('')
+      setBalanceTxnId('')
+      setBalanceFile(null)
+      setBalancePreviewUrl(null)
+      await refreshBooking()
+    } catch (err) {
+      console.error(err)
+      toast.error(err.message || 'Failed to submit payment')
+    } finally {
+      setBalanceSubmitting(false)
+    }
+  }
+
+  const handleReviewSubmit = async () => {
+    if (!rating) { toast.error('Please select a star rating'); return }
+    const text = comment.trim()
+    if (text.length < 10) { toast.error('Please write a few words about your experience'); return }
+
+    setReviewSubmitting(true)
+    try {
+      // addReview sets approved:false itself — the Firestore rules only
+      // allow a customer-created review to have approved==false, so we must
+      // NOT pass an approved field here.
+      await addReview({
+        bookingId:    booking.id,
+        userId:       user.uid,
+        customerName: booking.customerName || '',
+        rating,
+        comment:      text,
+      })
+      setReview({ rating, comment: text, approved: false })
+      toast.success('Thanks for your review! It will appear on the site once approved.')
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to submit review. Please try again.')
+    } finally {
+      setReviewSubmitting(false)
+    }
   }
 
   if (loading) {
@@ -197,6 +328,12 @@ export default function BookingDetail() {
   const balance = Math.max(0, total - paid)
   const addonLabels = (booking.addons || []).map(a => ADDONS.find(x => x.id === a)?.label || a)
   const showCalendarActions = ['confirmed', 'event_started'].includes(booking.status) && !!booking.eventDate
+  // Only offer a fresh submission when there isn't one already awaiting verification —
+  // the Payment section above shows that notice, so we don't want a second form.
+  const showBalanceSection = ['confirmed', 'event_started'].includes(booking.status)
+    && balance > 0 && !booking.pendingPayment
+  const showReviewSection = booking.status === 'completed'
+  const upiLink = `upi://pay?pa=${BUSINESS_INFO.upiId}&pn=Varahi+Events&cu=INR`
 
   return (
     <div className="min-h-screen py-8">
@@ -376,6 +513,143 @@ export default function BookingDetail() {
           )}
         </motion.div>
 
+        {/* Pay Remaining Balance — customer-initiated top-up, mirrors PaymentSection's UPI+screenshot flow */}
+        {showBalanceSection && (
+          <motion.div initial={{ opacity:0, y:20 }} animate={{ opacity:1, y:0 }} transition={{ delay:0.22 }}
+            className="glass-card p-5 mb-5">
+            {!balanceOpen ? (
+              <button
+                onClick={() => { setBalanceOpen(true); setBalanceAmount(String(balance)) }}
+                className="btn-primary w-full justify-center"
+              >
+                <IndianRupee size={14}/> Pay Remaining Balance
+              </button>
+            ) : (
+              <div>
+                <h2 className="text-white font-semibold text-sm mb-4 flex items-center gap-2">
+                  <IndianRupee size={15} style={{ color:'#C9933A' }}/> Pay Remaining Balance
+                </h2>
+
+                {/* QR Code */}
+                <div className="flex flex-col items-center mb-4">
+                  <div className="p-4 rounded-2xl bg-white mb-2">
+                    <QRCode value={upiLink} size={140} level="M" fgColor="#0D0508"/>
+                  </div>
+                  <p className="text-xs" style={{ color:'#9C7A82' }}>Scan with any UPI app</p>
+                </div>
+
+                {/* UPI ID copy */}
+                <div className="flex items-center justify-between p-4 rounded-xl mb-4"
+                  style={{ background:'rgba(13,5,8,0.8)', border:'1px solid rgba(61,30,40,0.8)' }}>
+                  <div>
+                    <p className="text-xs uppercase tracking-wider mb-1" style={{ color:'#9C7A82' }}>UPI ID</p>
+                    <p className="font-mono font-semibold text-white">{BUSINESS_INFO.upiId}</p>
+                  </div>
+                  <button onClick={handleCopyUpi}
+                    className="p-2 rounded-lg transition-all"
+                    style={{
+                      background: copiedUpi ? 'rgba(34,197,94,0.1)' : 'transparent',
+                      border: `1px solid ${copiedUpi ? 'rgba(34,197,94,0.4)' : 'rgba(61,30,40,0.8)'}`,
+                      color: copiedUpi ? '#86efac' : '#9C7A82',
+                    }}>
+                    {copiedUpi ? <CheckCircle size={16}/> : <Copy size={16}/>}
+                  </button>
+                </div>
+
+                {/* Amount */}
+                <div className="mb-4">
+                  <label className="label-dark">Amount (₹) *</label>
+                  <div className="relative">
+                    <IndianRupee size={14} className="absolute left-3 top-1/2 -translate-y-1/2"
+                      style={{ color:'#9C7A82' }}/>
+                    <input
+                      type="number"
+                      className="input-dark pl-8"
+                      placeholder="Enter amount"
+                      value={balanceAmount}
+                      onChange={e => setBalanceAmount(e.target.value)}
+                      min="1"
+                      max={balance}
+                    />
+                  </div>
+                  <p className="text-xs mt-1" style={{ color:'#9C7A82' }}>
+                    Balance due: ₹{balance.toLocaleString('en-IN')}
+                  </p>
+                </div>
+
+                {/* Transaction ID */}
+                <div className="mb-4">
+                  <label className="label-dark">Transaction ID / UTR Number *</label>
+                  <input
+                    className="input-dark"
+                    placeholder="e.g. 123456789012 (12-digit UTR)"
+                    value={balanceTxnId}
+                    onChange={e => setBalanceTxnId(e.target.value)}
+                  />
+                </div>
+
+                {/* Screenshot upload (optional) */}
+                <div className="mb-5">
+                  <label className="label-dark">Payment Screenshot (optional)</label>
+                  {balancePreviewUrl ? (
+                    <div className="relative rounded-xl overflow-hidden mb-2"
+                      style={{ border:'1px solid rgba(201,147,58,0.3)' }}>
+                      <img src={balancePreviewUrl} alt="Payment proof" className="w-full max-h-48 object-contain"
+                        style={{ background:'#0D0508' }}/>
+                      <button
+                        onClick={() => { setBalanceFile(null); setBalancePreviewUrl(null) }}
+                        className="absolute top-2 right-2 px-2 py-1 rounded-lg text-xs"
+                        style={{ background:'rgba(239,68,68,0.8)', color:'white' }}
+                      >
+                        Change
+                      </button>
+                    </div>
+                  ) : (
+                    <div
+                      className="rounded-xl p-6 text-center cursor-pointer transition-all duration-200"
+                      style={{ border:'2px dashed rgba(61,30,40,0.8)' }}
+                      onClick={() => document.getElementById('balancePaymentFile').click()}
+                    >
+                      <input
+                        id="balancePaymentFile"
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={e => handleBalanceFileSelect(e.target.files?.[0])}
+                      />
+                      <div className="flex flex-col items-center gap-2">
+                        <Upload size={20} style={{ color:'#C9933A' }}/>
+                        <p className="text-xs" style={{ color:'#9C7A82' }}>Tap to upload screenshot (PNG, JPG · Max 3MB)</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => { setBalanceOpen(false); setBalanceFile(null); setBalancePreviewUrl(null) }}
+                    className="btn-secondary"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleBalanceSubmit}
+                    disabled={balanceSubmitting}
+                    className="btn-primary flex-1 justify-center"
+                    style={{ opacity: balanceSubmitting ? 0.6 : 1, cursor: balanceSubmitting ? 'not-allowed' : 'pointer' }}
+                  >
+                    {balanceSubmitting ? (
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/>
+                    ) : (
+                      <>Submit Payment</>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+          </motion.div>
+        )}
+
         {/* Crew — only shown when crew has actually been assigned */}
         {Array.isArray(booking.crew) && booking.crew.length > 0 && (
           <motion.div initial={{ opacity:0, y:20 }} animate={{ opacity:1, y:0 }} transition={{ delay:0.25 }}
@@ -391,6 +665,79 @@ export default function BookingDetail() {
                 </span>
               ))}
             </div>
+          </motion.div>
+        )}
+
+        {/* Leave a Review — only once the event is completed */}
+        {showReviewSection && reviewChecked && (
+          <motion.div initial={{ opacity:0, y:20 }} animate={{ opacity:1, y:0 }} transition={{ delay:0.28 }}
+            className="glass-card p-5 mb-5">
+            <h2 className="text-white font-semibold text-sm mb-4 flex items-center gap-2">
+              <Star size={15} style={{ color:'#C9933A' }}/> {review ? 'Your Review' : 'Leave a Review'}
+            </h2>
+
+            {review ? (
+              <div>
+                <div className="flex gap-1 mb-3">
+                  {[1, 2, 3, 4, 5].map(n => (
+                    <Star key={n} size={18}
+                      fill={review.rating >= n ? '#C9933A' : 'none'}
+                      style={{ color: review.rating >= n ? '#C9933A' : '#9C7A82' }}/>
+                  ))}
+                </div>
+                {review.comment && (
+                  <p className="text-sm text-white mb-3">&ldquo;{review.comment}&rdquo;</p>
+                )}
+                <p className="text-xs" style={{ color:'#9C7A82' }}>
+                  Thanks for your feedback! It will appear publicly on our site once approved by our team.
+                </p>
+              </div>
+            ) : (
+              <div>
+                <p className="text-xs mb-3" style={{ color:'#9C7A82' }}>
+                  Tell us how your event went — your review may be featured on our homepage once approved.
+                </p>
+
+                <div className="flex gap-1 mb-4">
+                  {[1, 2, 3, 4, 5].map(n => (
+                    <button key={n} type="button"
+                      onMouseEnter={() => setHoverRating(n)}
+                      onMouseLeave={() => setHoverRating(0)}
+                      onClick={() => setRating(n)}
+                      className="p-0.5"
+                    >
+                      <Star size={26}
+                        fill={(hoverRating || rating) >= n ? '#C9933A' : 'none'}
+                        style={{ color: (hoverRating || rating) >= n ? '#C9933A' : '#9C7A82' }}/>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="mb-4">
+                  <label className="label-dark">Your Comment *</label>
+                  <textarea
+                    className="input-dark"
+                    rows={3}
+                    placeholder="Share a few words about your experience..."
+                    value={comment}
+                    onChange={e => setComment(e.target.value)}
+                  />
+                </div>
+
+                <button
+                  onClick={handleReviewSubmit}
+                  disabled={reviewSubmitting}
+                  className="btn-primary w-full justify-center"
+                  style={{ opacity: reviewSubmitting ? 0.6 : 1, cursor: reviewSubmitting ? 'not-allowed' : 'pointer' }}
+                >
+                  {reviewSubmitting ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/>
+                  ) : (
+                    <>Submit Review</>
+                  )}
+                </button>
+              </div>
+            )}
           </motion.div>
         )}
 

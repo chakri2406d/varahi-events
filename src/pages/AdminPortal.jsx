@@ -1,6 +1,6 @@
 import { Routes, Route, NavLink, useNavigate } from 'react-router-dom'
 import { useState, lazy, Suspense } from 'react'
-import { LayoutDashboard, CalendarCheck, Package, DollarSign, TrendingUp, LogOut, Menu, Shield, ReceiptText, CalendarDays, Globe, ScanLine, Users } from 'lucide-react'
+import { LayoutDashboard, CalendarCheck, Package, DollarSign, TrendingUp, LogOut, Menu, Shield, ReceiptText, CalendarDays, Globe, ScanLine, Users, CalendarClock, Inbox, Star, Image } from 'lucide-react'
 import { logout } from '../firebase/auth'
 import { useAuth } from '../context/AuthContext'
 import { setAdminWantsPublic } from '../utils/adminView'
@@ -17,8 +17,13 @@ import PricingManagement   from '../components/admin/PricingManagement'
 import ExpenseManagement   from '../components/admin/ExpenseManagement'
 import PnLDashboard        from '../components/admin/PnLDashboard'
 import EventManagement     from '../components/admin/EventManagement'
+import TodayView           from '../components/admin/TodayView'
+import InquiryManagement   from '../components/admin/InquiryManagement'
+import ReviewManagement    from '../components/admin/ReviewManagement'
+import GalleryManagement   from '../components/admin/GalleryManagement'
 
 const NAV = [
+  { to:'/admin/today',     icon:CalendarClock,   label:'Today'               },
   { to:'/admin',          icon:LayoutDashboard, label:'Dashboard', end:true },
   { to:'/admin/scan',     icon:ScanLine,        label:'Scan QR'             },
   { to:'/admin/bookings', icon:CalendarCheck,   label:'Bookings'            },
@@ -28,6 +33,9 @@ const NAV = [
   { to:'/admin/pricing',  icon:ReceiptText,     label:'Pricing'             },
   { to:'/admin/expenses', icon:DollarSign,      label:'Expenses'            },
   { to:'/admin/pnl',      icon:TrendingUp,      label:'P & L'               },
+  { to:'/admin/inquiries',icon:Inbox,           label:'Inquiries'           },
+  { to:'/admin/reviews',  icon:Star,            label:'Reviews'             },
+  { to:'/admin/gallery',  icon:Image,           label:'Gallery'             },
 ]
 
 export default function AdminPortal() {
@@ -148,6 +156,7 @@ export default function AdminPortal() {
         <main className="flex-1 overflow-y-auto p-4 sm:p-6">
           <Routes>
             <Route index           element={<AdminDashboard/>}    />
+            <Route path="today"     element={<TodayView/>}         />
             <Route path="scan"     element={<Suspense fallback={<div className="p-6 text-brand-muted text-sm">Loading scanner…</div>}><QrScanner/></Suspense>} />
             <Route path="bookings" element={<BookingManagement/>} />
             <Route path="events"   element={<EventManagement/>}   />
@@ -156,6 +165,9 @@ export default function AdminPortal() {
             <Route path="pricing"  element={<PricingManagement/>} />
             <Route path="expenses" element={<ExpenseManagement/>} />
             <Route path="pnl"      element={<PnLDashboard/>}      />
+            <Route path="inquiries" element={<InquiryManagement/>} />
+            <Route path="reviews"   element={<ReviewManagement/>}  />
+            <Route path="gallery"   element={<GalleryManagement/>} />
           </Routes>
         </main>
       </div>

@@ -1,127 +1,182 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Lock, Save, Eye, EyeOff } from 'lucide-react'
+import { Info, Save } from 'lucide-react'
 import { getMachines, updateMachine } from '../../firebase/firestore'
 import toast from 'react-hot-toast'
+
+// Formats a rate the same way customers see it on the Equipment page / quote.
+const previewRate = (val) => {
+  if (val === null || val === undefined || val === '') return 'Price on request'
+  const n = Number(val)
+  if (isNaN(n)) return 'Price on request'
+  return `₹${n.toLocaleString('en-IN')} / unit`
+}
 
 export default function PricingManagement() {
   const [machines, setMachines] = useState([])
   const [loading,  setLoading]  = useState(true)
-  const [prices,   setPrices]   = useState({})
-  const [saving,   setSaving]   = useState({})
-  const [showPrices, setShowPrices] = useState(true)
+  const [rates,    setRates]    = useState({})   // id -> string shown in the input
+  const [saving,   setSaving]   = useState(false)
 
-  useEffect(() => {
+  const load = () => {
+    setLoading(true)
     getMachines()
       .then(data => {
         setMachines(data)
-        const p = {}
-        data.forEach(m => {
-          p[m.id] = {
-            basePrice:     m.basePrice     || '',
-            pricePerDay:   m.pricePerDay   || '',
-            transportFee:  m.transportFee  || '',
-            operatorFee:   m.operatorFee   || '',
-            generatorFee:  m.generatorFee  || '',
-          }
-        })
-        setPrices(p)
+        const r = {}
+        // '' (empty string) means "no rate set yet" / price on request — never 0
+        data.forEach(m => { r[m.id] = m.rate === null || m.rate === undefined ? '' : String(m.rate) })
+        setRates(r)
       })
-      .catch(() => {})
+      .catch(() => toast.error('Failed to load machines'))
       .finally(() => setLoading(false))
-  }, [])
-
-  const setPrice = (id, key, val) => {
-    setPrices(prev => ({ ...prev, [id]: { ...prev[id], [key]: val } }))
   }
 
-  const handleSave = async (machine) => {
-    setSaving(prev => ({ ...prev, [machine.id]: true }))
-    try {
-      const p = prices[machine.id] || {}
-      await updateMachine(machine.id, {
-        basePrice:    Number(p.basePrice)    || 0,
-        pricePerDay:  Number(p.pricePerDay)  || 0,
-        transportFee: Number(p.transportFee) || 0,
-        operatorFee:  Number(p.operatorFee)  || 0,
-        generatorFee: Number(p.generatorFee) || 0,
+  useEffect(() => { load() }, [])
+
+  const setRate = (id, val) => setRates(prev => ({ ...prev, [id]: val }))
+
+  // Rows whose rate input differs from what's stored in Firestore right now.
+  const dirtyIds = useMemo(() => {
+    return machines
+      .filter(m => {
+        const original = m.rate === null || m.rate === undefined ? '' : String(m.rate)
+        return (rates[m.id] ?? '') !== original
       })
-      toast.success(`Pricing updated for ${machine.name}`)
-    } catch { toast.error('Failed to save') }
-    finally { setSaving(prev => ({ ...prev, [machine.id]: false })) }
+      .map(m => m.id)
+  }, [machines, rates])
+
+  const handleSaveAll = async () => {
+    if (!dirtyIds.length) return
+
+    // Validate every dirty row before writing anything.
+    for (const id of dirtyIds) {
+      const raw = rates[id]
+      if (raw === '') continue // clearing to "price on request" is always valid
+      const n = Number(raw)
+      if (isNaN(n) || n < 0) {
+        const m = machines.find(mm => mm.id === id)
+        toast.error(`${m?.name || 'A machine'} has an invalid rate`)
+        return
+      }
+    }
+
+    setSaving(true)
+    try {
+      await Promise.all(dirtyIds.map(id => {
+        const raw = rates[id]
+        // Number('') is 0, so an explicitly-cleared field must be sent as null
+        // ("price on request"), never as a silent 0.
+        const rate = raw === '' ? null : Number(raw)
+        return updateMachine(id, { rate })
+      }))
+      toast.success(`Updated ${dirtyIds.length} machine${dirtyIds.length > 1 ? 's' : ''}`)
+      load()
+    } catch {
+      toast.error('Failed to save some changes')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
     <div>
       <motion.div initial={{ opacity:0, y:16 }} animate={{ opacity:1, y:0 }} className="mb-6">
         <div className="flex items-center gap-3 mb-1">
-          <Lock size={20} className="text-amber-400"/>
-          <h1 className="font-display font-bold text-2xl text-white">Pricing Management</h1>
+          <span className="font-display font-bold text-2xl text-white">Pricing Management</span>
         </div>
-        <p className="text-brand-muted text-sm">Prices are <strong className="text-amber-400">never shown to customers</strong>. Admin-only view.</p>
+        <p className="text-sm" style={{ color:'#9C7A82' }}>
+          Bulk-edit machine rates. This is the real customer-facing price.
+        </p>
       </motion.div>
 
-      {/* Privacy notice */}
-      <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 mb-6 flex items-start gap-3">
-        <Lock size={16} className="text-amber-400 flex-shrink-0 mt-0.5"/>
+      {/* Explanatory note */}
+      <div className="p-4 rounded-xl mb-6 flex items-start gap-3"
+        style={{ background:'rgba(201,147,58,0.1)', border:'1px solid rgba(201,147,58,0.3)' }}>
+        <Info size={16} style={{ color:'#C9933A' }} className="flex-shrink-0 mt-0.5"/>
         <div>
-          <p className="text-amber-300 text-sm font-semibold">Confidential Pricing</p>
-          <p className="text-amber-300/70 text-xs mt-0.5">These prices are stored in Firestore and only visible to admin users. Customers will always see "Price on request" or a custom quote you set per booking.</p>
+          <p className="text-sm font-semibold" style={{ color:'#E8B86D' }}>This rate is what customers see</p>
+          <p className="text-xs mt-0.5" style={{ color:'#9C7A82' }}>
+            The rate below is shown per unit on the Equipment page and is exactly what the booking quote is
+            calculated from (rate × quantity). Clear a rate to show "Price on request" instead of a number.
+            Transport, operator and generator charges aren't tracked per machine yet — quote those manually
+            when you confirm a booking.
+          </p>
         </div>
-        <button onClick={()=>setShowPrices(v=>!v)} className="ml-auto p-1.5 rounded-lg bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 transition-all flex-shrink-0">
-          {showPrices ? <EyeOff size={16}/> : <Eye size={16}/>}
-        </button>
       </div>
 
       {loading ? (
-        <div className="space-y-4">{[...Array(4)].map((_,i)=><div key={i} className="skeleton h-48 rounded-2xl"/>)}</div>
+        <div className="space-y-3">{[...Array(5)].map((_,i)=><div key={i} className="skeleton h-16 rounded-xl"/>)}</div>
       ) : (
-        <div className="space-y-4">
-          {machines.map((m,i)=>(
-            <motion.div key={m.id} initial={{ opacity:0, y:12 }} animate={{ opacity:1, y:0 }} transition={{ delay:i*0.07 }}
-              className="glass-card p-5">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="text-2xl">{m.emoji||'🎪'}</div>
-                <h3 className="text-white font-semibold">{m.name}</h3>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
-                {[
-                  { key:'basePrice',    label:'Base Price (₹)',       placeholder:'5000' },
-                  { key:'pricePerDay',  label:'Per Day Rate (₹)',     placeholder:'3000' },
-                  { key:'transportFee', label:'Transport Fee (₹)',    placeholder:'1000' },
-                  { key:'operatorFee',  label:'Operator Fee (₹)',     placeholder:'800'  },
-                  { key:'generatorFee', label:'Generator Fee (₹)',    placeholder:'500'  },
-                ].map(({ key, label, placeholder }) => (
-                  <div key={key}>
-                    <label className="label-dark">{label}</label>
+        <>
+          <div className="glass-card overflow-hidden mb-4">
+            <div className="hidden sm:grid grid-cols-[1fr_180px_180px] gap-3 px-5 py-3 text-xs uppercase tracking-wider"
+              style={{ color:'#9C7A82', borderBottom:'1px solid rgba(61,30,40,0.8)' }}>
+              <span>Machine</span>
+              <span>Rate (₹ / unit)</span>
+              <span>Customer sees</span>
+            </div>
+            <div>
+              {machines.map((m, i) => {
+                const isDirty = dirtyIds.includes(m.id)
+                return (
+                  <motion.div key={m.id} initial={{ opacity:0, y:8 }} animate={{ opacity:1, y:0 }} transition={{ delay:i*0.03 }}
+                    className="grid grid-cols-1 sm:grid-cols-[1fr_180px_180px] gap-3 px-5 py-4 items-center"
+                    style={{ borderBottom: i < machines.length - 1 ? '1px solid rgba(61,30,40,0.8)' : 'none' }}>
+                    <div className="flex items-center gap-3">
+                      <div className="text-xl">{m.emoji || '🎪'}</div>
+                      <span className="text-white font-medium text-sm">{m.name}</span>
+                      {isDirty && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full"
+                          style={{ background:'rgba(201,147,58,0.15)', color:'#E8B86D', border:'1px solid rgba(201,147,58,0.3)' }}>
+                          unsaved
+                        </span>
+                      )}
+                    </div>
                     <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-brand-muted text-xs">₹</span>
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs" style={{ color:'#9C7A82' }}>₹</span>
                       <input
-                        type={showPrices ? 'number' : 'password'}
+                        type="number"
+                        min={0}
                         className="input-dark pl-6"
-                        placeholder={placeholder}
-                        value={prices[m.id]?.[key] || ''}
-                        onChange={e => setPrice(m.id, key, e.target.value)}
+                        placeholder="Price on request"
+                        value={rates[m.id] ?? ''}
+                        onChange={e => setRate(m.id, e.target.value)}
                       />
                     </div>
-                  </div>
-                ))}
-              </div>
+                    <span className="text-sm"
+                      style={{ color: (rates[m.id] ?? '') === '' ? '#9C7A82' : '#86efac' }}>
+                      {previewRate(rates[m.id])}
+                    </span>
+                  </motion.div>
+                )
+              })}
+              {machines.length === 0 && (
+                <div className="text-center py-12 text-sm" style={{ color:'#9C7A82' }}>
+                  No machines yet. Add one from Equipment Management first.
+                </div>
+              )}
+            </div>
+          </div>
 
-              <button
-                onClick={() => handleSave(m)}
-                disabled={saving[m.id]}
-                className="btn-gold text-sm py-2 px-4"
-              >
-                {saving[m.id]
-                  ? <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin"/>
-                  : <><Save size={14}/> Save Pricing</>
-                }
-              </button>
-            </motion.div>
-          ))}
-        </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleSaveAll}
+              disabled={saving || !dirtyIds.length}
+              className="btn-gold text-sm py-2 px-5 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {saving
+                ? <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin"/>
+                : <><Save size={14}/> Save changes</>
+              }
+            </button>
+            {dirtyIds.length > 0 && (
+              <span className="text-xs" style={{ color:'#E8B86D' }}>
+                {dirtyIds.length} unsaved change{dirtyIds.length > 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+        </>
       )}
     </div>
   )

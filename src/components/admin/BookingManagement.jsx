@@ -4,7 +4,10 @@ import { Check, X, Eye, Search, Calendar, MapPin, ExternalLink,
          IndianRupee, Receipt, CheckCircle, AlertCircle, Wallet, Plus, UserPlus, Phone,
          MessageCircle } from 'lucide-react'
 import { listenBookings, updateBookingStatus, addPublicEvent, recordPayment, paymentBreakdown,
-         createOfflineBooking, findBookingConflicts, notifyBookingStatus } from '../../firebase/firestore'
+         createOfflineBooking, findBookingConflicts, notifyBookingStatus,
+         cancelBooking, cancellationCharge, recordRefund, approveBalancePayment,
+         rejectBalancePayment, getCrew, assignCrew, getCrewCommitmentsForDate,
+         getMachines } from '../../firebase/firestore'
 import { STATUS_LABELS, STATUS_COLORS, BOOKING_STATUSES, PAYMENT_METHODS } from '../../utils/constants'
 import { fmt } from '../../utils/dateUtils'
 import toast from 'react-hot-toast'
@@ -44,11 +47,33 @@ export default function BookingManagement() {
   const [payRef,    setPayRef]    = useState('')
   const [recording, setRecording] = useState(false)
 
+  // Balance-payment approval, refunds and crew assignment
+  const [approvingPay, setApprovingPay] = useState(false)
+  const [showRefund,   setShowRefund]   = useState(false)
+  const [refundAmt,    setRefundAmt]    = useState('')
+  const [refundMethod, setRefundMethod] = useState(PAYMENT_METHODS.CASH)
+  const [refundReason, setRefundReason] = useState('')
+  const [refunding,    setRefunding]    = useState(false)
+  const [showCrew,  setShowCrew]  = useState(false)
+  const [crewList,  setCrewList]  = useState([])
+  const [crewPick,  setCrewPick]  = useState([])
+  const [crewBusy,  setCrewBusy]  = useState(new Map())
+  const [savingCrew,setSavingCrew]= useState(false)
+
   // Offline / walk-in booking form (no online request from a customer)
   const emptyOffline = { customerName:'', customerPhone:'', eventDate:'', eventLocation:'', totalAmount:'', amount:'', method: PAYMENT_METHODS.CASH }
   const [showOffline, setShowOffline] = useState(false)
   const [offline,     setOffline]     = useState(emptyOffline)
   const [savingOff,   setSavingOff]   = useState(false)
+  // Equipment picker for walk-ins, so they count toward availability
+  const [offMachines, setOffMachines] = useState([])
+
+  useEffect(() => {
+    if (!showOffline || offMachines.length) return
+    getMachines()
+      .then(list => setOffMachines(list.map(m => ({ ...m, qty: 0 }))))
+      .catch(() => {})
+  }, [showOffline, offMachines.length])
   const setOff = (k) => (e) => setOffline(o => ({ ...o, [k]: e.target.value }))
 
   useEffect(() => {
@@ -162,6 +187,21 @@ export default function BookingManagement() {
   const handleCreateOffline = async () => {
     if (!offline.customerName.trim()) { toast.error('Enter the customer name'); return }
     if (!offline.amount || Number(offline.amount) <= 0) { toast.error('Enter the amount received'); return }
+    // Walk-ins take equipment off the shelf too — check the same availability
+    // rules an online booking goes through before committing it.
+    const picked = offMachines
+      .filter(m => Number(m.qty) > 0)
+      .map(m => ({ id: m.id, name: m.name, qty: Number(m.qty), price: m.rate ?? null }))
+
+    if (picked.length && offline.eventDate) {
+      const conflicts = await findBookingConflicts({ eventDate: offline.eventDate, machines: picked })
+      if (conflicts.length) {
+        const detail = conflicts.map(c => `${c.name}: need ${c.requested}, only ${c.free} free`).join(' · ')
+        toast.error(`Not enough equipment on ${offline.eventDate} — ${detail}`, { duration: 7000 })
+        return
+      }
+    }
+
     setSavingOff(true)
     try {
       await createOfflineBooking({
@@ -172,9 +212,11 @@ export default function BookingManagement() {
         totalAmount:   offline.totalAmount,
         amount:        offline.amount,
         method:        offline.method,
+        machines:      picked,
       })
       toast.success('Offline booking added and counted in revenue')
       setOffline(emptyOffline)
+      setOffMachines(ms => ms.map(m => ({ ...m, qty: 0 })))
       setShowOffline(false)
     } catch (err) {
       console.error(err)
@@ -186,12 +228,18 @@ export default function BookingManagement() {
 
   // ── Reject / Cancel booking ───────────────────────────────────────────────
   const handleReject = async () => {
-    if (!confirm('Cancel this booking? This cannot be undone.')) return
+    // Use cancelBooking() — NOT a raw status update. It also computes the
+    // cancellation charge and removes the calendar block, so the date is
+    // freed up instead of staying blocked forever.
+    const charge = cancellationCharge(selected)
+    const msg = charge.amount > 0
+      ? `Cancel this booking?\n\n${charge.label}\nCancellation charge: Rs. ${Math.round(charge.amount).toLocaleString('en-IN')}\n\nThe date will be freed on the calendar.`
+      : `Cancel this booking?\n\n${charge.label}\nThe date will be freed on the calendar.`
+    if (!confirm(msg)) return
     try {
-      await updateBookingStatus(selected.id, BOOKING_STATUSES.CANCELLED, {
-        cancelledAt: new Date().toISOString(),
-      })
-      toast.success('Booking cancelled.')
+      await cancelBooking(selected.id, { reason: 'Cancelled by admin', by: 'admin' })
+      await notifyBookingStatus(selected, BOOKING_STATUSES.CANCELLED)
+      toast.success('Booking cancelled and date released.')
       setSelected(null)
     } catch {
       toast.error('Failed to cancel.')
@@ -201,10 +249,74 @@ export default function BookingManagement() {
   const handleStatusChange = async (id, status) => {
     try {
       await updateBookingStatus(id, status)
+      // Tell the customer too — previously only "confirmed" ever notified.
+      const b = bookings.find(x => x.id === id)
+      if (b) await notifyBookingStatus(b, status)
       toast.success(`Status updated to ${STATUS_LABELS[status] || status}`)
     } catch {
       toast.error('Update failed')
     }
+  }
+
+  // ── Approve / reject a customer-submitted balance payment ─────────────────
+  const handleApproveBalance = async () => {
+    if (!selected?.pendingPayment) return
+    setApprovingPay(true)
+    try {
+      await approveBalancePayment(selected.id)
+      toast.success('Payment approved and added to the booking')
+    } catch (e) {
+      toast.error(e.message || 'Could not approve payment')
+    } finally { setApprovingPay(false) }
+  }
+
+  const handleRejectBalance = async () => {
+    if (!confirm('Reject this submitted payment? The customer will need to submit again.')) return
+    try {
+      await rejectBalancePayment(selected.id)
+      toast.success('Payment submission rejected')
+    } catch { toast.error('Could not reject') }
+  }
+
+  // ── Refund ────────────────────────────────────────────────────────────────
+  const handleRefund = async () => {
+    const amt = Number(refundAmt)
+    if (!amt || amt <= 0) { toast.error('Enter a valid refund amount'); return }
+    if (!confirm(`Refund Rs. ${amt.toLocaleString('en-IN')} to ${selected.customerName || 'the customer'}?`)) return
+    setRefunding(true)
+    try {
+      await recordRefund(selected.id, { amount: amt, method: refundMethod, reason: refundReason })
+      toast.success('Refund recorded')
+      setRefundAmt(''); setRefundReason(''); setShowRefund(false)
+    } catch (e) {
+      toast.error(e.message || 'Refund failed')
+    } finally { setRefunding(false) }
+  }
+
+  // ── Crew assignment ───────────────────────────────────────────────────────
+  const openCrewPicker = async () => {
+    setShowCrew(true)
+    try {
+      const [list, busy] = await Promise.all([
+        getCrew(),
+        getCrewCommitmentsForDate(selected.eventDate, selected.id),
+      ])
+      setCrewList(list.filter(c => c.active !== false))
+      setCrewBusy(busy)
+      setCrewPick((selected.crew || []).map(c => c.id))
+    } catch { toast.error('Could not load crew') }
+  }
+
+  const handleSaveCrew = async () => {
+    setSavingCrew(true)
+    try {
+      const chosen = crewList.filter(c => crewPick.includes(c.id))
+                             .map(c => ({ id: c.id, name: c.name, phone: c.phone || '' }))
+      await assignCrew(selected.id, chosen)
+      toast.success('Crew assigned')
+      setShowCrew(false)
+    } catch { toast.error('Could not assign crew') }
+    finally { setSavingCrew(false) }
   }
 
   const STATUS_FILTERS = ['all','requested','payment_pending','confirmed','event_started','completed','cancelled']
@@ -449,6 +561,32 @@ export default function BookingManagement() {
                   </div>
                 </div>
 
+                {/* Equipment going out — keeps walk-ins in the availability count */}
+                <div>
+                  <label className="label-dark">Equipment (optional)</label>
+                  <div className="rounded-xl p-2 max-h-44 overflow-y-auto"
+                    style={{ background:'rgba(13,5,8,0.6)', border:'1px solid rgba(61,30,40,0.8)' }}>
+                    {offMachines.length === 0 ? (
+                      <p className="text-xs p-2" style={{ color:'#9C7A82' }}>No equipment in inventory yet</p>
+                    ) : offMachines.map((m, i) => (
+                      <div key={m.id} className="flex items-center justify-between gap-2 py-1.5 px-1">
+                        <span className="text-sm text-white truncate">{m.name}</span>
+                        <input
+                          type="number" min={0} className="input-dark w-16 text-center py-1"
+                          value={m.qty}
+                          onChange={e => {
+                            const qty = Math.max(0, Number(e.target.value) || 0)
+                            setOffMachines(list => list.map((x, j) => j === i ? { ...x, qty } : x))
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs mt-1" style={{ color:'#9C7A82' }}>
+                    Adding equipment here blocks it from being double-booked on that date.
+                  </p>
+                </div>
+
                 {/* Total + Amount received */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -557,6 +695,60 @@ export default function BookingManagement() {
                     >
                       <MessageCircle size={13}/> Message on WhatsApp
                     </a>
+                  )}
+                </div>
+
+                {/* Customer-submitted balance payment awaiting approval */}
+                {selected.pendingPayment && (
+                  <div className="glass-card p-4" style={{ border:'1px solid rgba(201,147,58,0.4)' }}>
+                    <p className="text-xs uppercase tracking-wider mb-2" style={{ color:'#E8B86D' }}>
+                      Payment submitted — needs verification
+                    </p>
+                    <p className="text-white font-semibold">
+                      ₹{Number(selected.pendingPayment.amount || 0).toLocaleString('en-IN')}
+                    </p>
+                    <p className="text-xs mt-0.5" style={{ color:'#9C7A82' }}>
+                      Txn: {selected.pendingPayment.transactionId || '—'}
+                    </p>
+                    {selected.pendingPayment.proofUrl && (
+                      <img src={selected.pendingPayment.proofUrl} alt="Payment proof"
+                        className="w-full max-h-48 object-contain rounded-lg mt-2"
+                        style={{ background:'#0D0508' }} />
+                    )}
+                    <div className="flex gap-2 mt-3">
+                      <button onClick={handleApproveBalance} disabled={approvingPay}
+                        className="flex-1 py-2 rounded-xl text-xs font-semibold"
+                        style={{ background:'rgba(34,197,94,0.15)', border:'1px solid rgba(34,197,94,0.4)', color:'#86efac' }}>
+                        {approvingPay ? 'Approving…' : 'Approve & Add'}
+                      </button>
+                      <button onClick={handleRejectBalance}
+                        className="flex-1 py-2 rounded-xl text-xs font-semibold"
+                        style={{ background:'rgba(239,68,68,0.12)', border:'1px solid rgba(239,68,68,0.35)', color:'#fca5a5' }}>
+                        Reject
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Crew assignment */}
+                <div className="glass-card p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs uppercase tracking-wider" style={{ color: '#9C7A82' }}>Crew</p>
+                    <button onClick={openCrewPicker} className="text-xs hover:underline" style={{ color:'#E8B86D' }}>
+                      {selected.crew?.length ? 'Change' : 'Assign'}
+                    </button>
+                  </div>
+                  {selected.crew?.length ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {selected.crew.map(c => (
+                        <span key={c.id} className="px-2 py-0.5 rounded-md text-xs"
+                          style={{ background:'rgba(201,147,58,0.12)', border:'1px solid rgba(201,147,58,0.3)', color:'#E8B86D' }}>
+                          {c.name}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs" style={{ color:'#9C7A82' }}>Nobody assigned yet</p>
                   )}
                 </div>
 
@@ -839,6 +1031,106 @@ export default function BookingManagement() {
                   </div>
                 )}
 
+                {/* Refund — only makes sense once money has been collected */}
+                {paymentBreakdown(selected).total > 0 && (
+                  <div className="glass-card p-4">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs uppercase tracking-wider" style={{ color:'#9C7A82' }}>Refund</p>
+                      <button onClick={() => setShowRefund(v => !v)} className="text-xs hover:underline"
+                        style={{ color:'#fca5a5' }}>
+                        {showRefund ? 'Close' : 'Record a refund'}
+                      </button>
+                    </div>
+
+                    {showRefund && (
+                      <div className="mt-3 space-y-3">
+                        <p className="text-[11px]" style={{ color:'#9C7A82' }}>
+                          Collected so far: ₹{paymentBreakdown(selected).total.toLocaleString('en-IN')}.
+                          A refund is logged as a negative payment so revenue and P&amp;L stay accurate.
+                        </p>
+                        <div>
+                          <label className="label-dark">Refund amount (₹)</label>
+                          <input type="number" min={1} className="input-dark" value={refundAmt}
+                            onChange={e => setRefundAmt(e.target.value)} placeholder="e.g. 1500" />
+                        </div>
+                        <div>
+                          <label className="label-dark">Method</label>
+                          <select className="input-dark" value={refundMethod}
+                            onChange={e => setRefundMethod(e.target.value)}>
+                            <option value={PAYMENT_METHODS.CASH}   className="bg-brand-surface">Cash</option>
+                            <option value={PAYMENT_METHODS.ONLINE} className="bg-brand-surface">Online / UPI</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="label-dark">Reason</label>
+                          <input className="input-dark" value={refundReason}
+                            onChange={e => setRefundReason(e.target.value)} placeholder="e.g. Cancelled — advance returned" />
+                        </div>
+                        <button onClick={handleRefund} disabled={refunding}
+                          className="w-full py-2.5 rounded-xl text-sm font-semibold"
+                          style={{ background:'rgba(239,68,68,0.12)', border:'1px solid rgba(239,68,68,0.4)', color:'#fca5a5' }}>
+                          {refunding ? 'Recording…' : 'Record Refund'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Crew picker */}
+      <AnimatePresence>
+        {showCrew && selected && (
+          <motion.div className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+            initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}>
+            <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowCrew(false)} />
+            <motion.div className="relative w-full max-w-sm rounded-2xl p-5 max-h-[85vh] overflow-y-auto"
+              style={{ background:'#1A0810', border:'1px solid rgba(61,30,40,0.9)' }}
+              initial={{ scale:0.95 }} animate={{ scale:1 }} exit={{ scale:0.95 }}>
+              <h3 className="text-white font-semibold mb-1">Assign Crew</h3>
+              <p className="text-xs mb-4" style={{ color:'#9C7A82' }}>
+                {selected.eventDate ? `For ${fmt(selected.eventDate)}` : 'No event date set'}
+              </p>
+
+              {crewList.length === 0 ? (
+                <p className="text-xs py-6 text-center" style={{ color:'#9C7A82' }}>
+                  No active crew yet — add people under Crew.
+                </p>
+              ) : crewList.map(c => {
+                // Flag anyone already committed to another event that day
+                const busyWith = crewBusy.get(c.id)
+                const picked   = crewPick.includes(c.id)
+                return (
+                  <label key={c.id}
+                    className="flex items-start gap-3 p-3 rounded-xl mb-2 cursor-pointer"
+                    style={{ background: picked ? 'rgba(201,147,58,0.1)' : 'rgba(13,5,8,0.6)',
+                             border: `1px solid ${picked ? 'rgba(201,147,58,0.4)' : 'rgba(61,30,40,0.8)'}` }}>
+                    <input type="checkbox" className="mt-0.5 accent-amber-500" checked={picked}
+                      onChange={() => setCrewPick(p => picked ? p.filter(x => x !== c.id) : [...p, c.id])} />
+                    <div className="min-w-0">
+                      <p className="text-sm text-white">{c.name}</p>
+                      {c.role && <p className="text-[11px]" style={{ color:'#9C7A82' }}>{c.role}</p>}
+                      {busyWith && (
+                        <p className="text-[11px] mt-0.5" style={{ color:'#fca5a5' }}>
+                          Already on another event this day
+                        </p>
+                      )}
+                    </div>
+                  </label>
+                )
+              })}
+
+              <div className="flex gap-2 mt-4">
+                <button onClick={() => setShowCrew(false)} className="flex-1 py-2.5 rounded-xl text-sm"
+                  style={{ border:'1px solid rgba(61,30,40,0.8)', color:'#9C7A82' }}>Cancel</button>
+                <button onClick={handleSaveCrew} disabled={savingCrew}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-semibold btn-primary justify-center">
+                  {savingCrew ? 'Saving…' : 'Save'}
+                </button>
               </div>
             </motion.div>
           </motion.div>
