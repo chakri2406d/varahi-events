@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Html5Qrcode } from 'html5-qrcode'
+// html5-qrcode is loaded ON DEMAND inside start(). Importing it at module level
+// meant any failure loading that library (stale cached chunk after a deploy,
+// flaky network) threw while the page was rendering and blanked the whole
+// screen instead of just failing to open the camera.
 import { ScanLine, CheckCircle, XCircle, Play, Square, Camera } from 'lucide-react'
 import { applyQrScan } from '../../firebase/firestore'
 import toast from 'react-hot-toast'
@@ -55,6 +58,15 @@ export default function QrScanner() {
     }
 
     try {
+      // Dynamic import — a failure here shows a message instead of crashing.
+      const { Html5Qrcode } = await import('html5-qrcode')
+
+      // The camera element must exist before Html5Qrcode is constructed.
+      if (!document.getElementById('qr-reader')) {
+        setError('Scanner failed to initialise. Please reload the page.')
+        return
+      }
+
       const scanner = new Html5Qrcode('qr-reader')
       scannerRef.current = scanner
       await scanner.start(

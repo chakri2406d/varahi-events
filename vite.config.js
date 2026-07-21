@@ -13,7 +13,9 @@ export default defineConfig({
           if (id.includes('node_modules/firebase')) return 'firebase'
           if (id.includes('node_modules/jspdf') || id.includes('node_modules/html2canvas')) return 'pdf'
           if (id.includes('node_modules/framer-motion')) return 'motion'
-          if (id.includes('node_modules/html5-qrcode')) return 'qr'
+          // html5-qrcode is dynamically imported at the point of use, so Vite
+          // chunks it automatically — forcing it into a manual chunk here can
+          // change its load order and break initialisation.
           if (
             id.includes('node_modules/react-dom') ||
             id.includes('node_modules/react-router-dom') ||

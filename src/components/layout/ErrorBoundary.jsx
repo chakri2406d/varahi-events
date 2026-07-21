@@ -24,11 +24,28 @@ export default class ErrorBoundary extends Component {
   componentDidCatch(error, info) {
     // Keep the full detail in the console so a real cause is still findable
     console.error('Unhandled UI error:', error, info?.componentStack)
+
+    // A failed dynamic import almost always means the browser is holding a
+    // stale build (old chunk filenames after a deploy). Reloading once fetches
+    // the new index.html and fixes it — but only once, so a genuine bug can't
+    // put us in a reload loop.
+    const msg = String(error?.message || '')
+    const isStaleChunk = /dynamically imported module|Loading chunk|Importing a module script failed|Failed to fetch/i.test(msg)
+
+    if (isStaleChunk && !sessionStorage.getItem('varahi_chunk_reloaded')) {
+      sessionStorage.setItem('varahi_chunk_reloaded', '1')
+      // Drop caches and any old service worker before reloading
+      Promise.resolve()
+        .then(() => (window.caches ? caches.keys().then(ks => Promise.all(ks.map(k => caches.delete(k)))) : null))
+        .catch(() => {})
+        .finally(() => window.location.reload())
+    }
   }
 
   handleRetry = () => {
-    // Clearing the error re-renders the subtree; if the fault was transient
-    // (a bad fetch, a race) this recovers without losing the whole session.
+    // Clear the one-shot reload guard so a later, unrelated stale-chunk error
+    // can still self-heal, then re-render the subtree.
+    sessionStorage.removeItem('varahi_chunk_reloaded')
     this.setState({ hasError: false, error: null })
   }
 
