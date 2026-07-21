@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { useEffect } from 'react'
+import { useEffect, lazy, Suspense } from 'react'
 import { useAuth } from './context/AuthContext'
 import { adminWantsPublic, setAdminWantsPublic } from './utils/adminView'
 
@@ -14,23 +14,36 @@ import Navbar from './components/layout/Navbar'
 import Footer from './components/layout/Footer'
 import MobileNav from './components/layout/MobileNav'
 
-// Pages
+// Home + Login load eagerly (the two most common entry points).
 import Home       from './pages/Home'
-import Events     from './pages/Events'
-import Equipment  from './pages/Equipment'
-import Calendar   from './pages/Calendar'
-import Gallery    from './pages/Gallery'
-import Contact    from './pages/Contact'
 import Login      from './pages/Login'
-import Dashboard  from './pages/Dashboard'
-import BookingDetail from './pages/BookingDetail'
-import Profile    from './pages/Profile'
-import FAQ        from './pages/FAQ'
-import Terms      from './pages/Terms'
-import Privacy    from './pages/Privacy'
-import AdminPortal from './pages/AdminPortal'
 import NotFound   from './pages/NotFound'
 import InstallPrompt from './components/layout/InstallPrompt'
+
+// Everything else is code-split so a first-time visitor doesn't download the
+// entire admin portal, PDF and QR libraries just to see the home page.
+const Events        = lazy(() => import('./pages/Events'))
+const Equipment     = lazy(() => import('./pages/Equipment'))
+const Calendar      = lazy(() => import('./pages/Calendar'))
+const Gallery       = lazy(() => import('./pages/Gallery'))
+const Contact       = lazy(() => import('./pages/Contact'))
+const Dashboard     = lazy(() => import('./pages/Dashboard'))
+const BookingDetail = lazy(() => import('./pages/BookingDetail'))
+const Profile       = lazy(() => import('./pages/Profile'))
+const FAQ           = lazy(() => import('./pages/FAQ'))
+const Terms         = lazy(() => import('./pages/Terms'))
+const Privacy       = lazy(() => import('./pages/Privacy'))
+const AdminPortal   = lazy(() => import('./pages/AdminPortal'))
+
+// Lightweight placeholder while a route chunk downloads
+function RouteFallback() {
+  return (
+    <div className="min-h-screen flex items-center justify-center" style={{ background: '#1A0810' }}>
+      <div className="w-8 h-8 rounded-full animate-spin"
+        style={{ border: '2px solid rgba(201,147,58,0.25)', borderTopColor: '#C9933A' }} />
+    </div>
+  )
+}
 
 // ── Protected Route ──────────────────────────────────────────────────────────
 function Protected({ children }) {
@@ -83,6 +96,7 @@ export default function App() {
     <>
     <ScrollToTop />
     <InstallPrompt />
+    <Suspense fallback={<RouteFallback />}>
     <Routes>
       {/* Public */}
       <Route path="/"          element={<HomeEntry />} />
@@ -106,6 +120,7 @@ export default function App() {
 
       <Route path="*" element={<NotFound />} />
     </Routes>
+    </Suspense>
     </>
   )
 }

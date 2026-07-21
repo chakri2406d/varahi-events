@@ -586,8 +586,10 @@ export const getCrew = async () => {
   return snap.docs.map(d => ({ id: d.id, ...d.data() }))
 }
 
+// `active` defaults to true but must NOT override an explicit false from the
+// form — hence data is spread last.
 export const addCrew = (data) =>
-  addDoc(collection(db, 'crew'), { ...data, active: true, createdAt: serverTimestamp() })
+  addDoc(collection(db, 'crew'), { active: true, ...data, createdAt: serverTimestamp() })
 
 export const updateCrew = (id, data) => updateDoc(doc(db, 'crew', id), data)
 export const deleteCrew = (id) => deleteDoc(doc(db, 'crew', id))

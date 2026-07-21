@@ -7,6 +7,15 @@ import toast from 'react-hot-toast'
 
 const EMPTY = { name:'', description:'', status:'available', totalQty:1, availableQty:1, rate:'', emoji:'🎪', addons:'' }
 
+// A machine with rate:null ("price on request") would otherwise put null into a
+// controlled <input>, flipping it to uncontrolled and warning in the console.
+const toFormValues = (m) => ({
+  ...EMPTY,
+  ...m,
+  rate: m?.rate == null ? '' : m.rate,
+  addons: Array.isArray(m?.addons) ? m.addons.join(', ') : (m?.addons || ''),
+})
+
 export default function MachineManagement() {
   const [machines, setMachines] = useState([])
   const [loading,  setLoading]  = useState(true)
@@ -61,7 +70,7 @@ export default function MachineManagement() {
   }
 
   const handleEdit = (m) => {
-    setForm({ ...m, addons: Array.isArray(m.addons) ? m.addons.join(', ') : m.addons || '' })
+    setForm(toFormValues(m))
     setEditing(m.id)
     setShowForm(true)
   }

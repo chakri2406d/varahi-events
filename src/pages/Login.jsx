@@ -21,15 +21,29 @@ export default function Login() {
   // Wait until the profile (and therefore the role) is loaded, then send
   // admins straight to the admin portal and everyone else to their dashboard.
   useEffect(() => {
-    if (user && profile) {
-      // Fresh login → default admins to the dashboard (clear any prior
-      // "view public site" choice from an earlier session).
-      resetAdminWantsPublic()
+    if (!user) return
+    // Fresh login → default admins to the dashboard (clear any prior
+    // "view public site" choice from an earlier session).
+    resetAdminWantsPublic()
+
+    if (profile) {
       navigate(isAdmin ? '/admin' : '/dashboard', { replace: true })
+      return
     }
+    // The profile document is written at the END of register(), so this
+    // listener can win the race and find nothing. Previously that left the
+    // user on a permanently blank page with no way out. Send them on anyway.
+    const t = setTimeout(() => navigate('/dashboard', { replace: true }), 2500)
+    return () => clearTimeout(t)
   }, [user, profile, isAdmin, navigate])
 
-  if (user) return null
+  // Signed in but still resolving — show a spinner, never a blank screen
+  if (user) return (
+    <div className="min-h-screen flex items-center justify-center" style={{ background: '#1A0810' }}>
+      <div className="w-8 h-8 rounded-full animate-spin"
+        style={{ border: '2px solid rgba(201,147,58,0.25)', borderTopColor: '#C9933A' }} />
+    </div>
+  )
 
   const handleSubmit = async (e) => {
     e.preventDefault()

@@ -84,15 +84,25 @@ export default function Gallery() {
                   className={`relative rounded-2xl overflow-hidden cursor-pointer group ${item.span || ''}`}
                   onClick={() => setSelected(item)}
                 >
-                  {/* Background */}
-                  <div className="absolute inset-0 transition-transform duration-500 group-hover:scale-105"
-                    style={{ background:`linear-gradient(135deg, ${item.color}35 0%, ${item.color}12 100%)`, border:`1px solid ${item.color}25` }}
-                  />
-
-                  {/* Big emoji */}
-                  <div className="absolute inset-0 flex items-center justify-center text-[70px] opacity-20 select-none">
-                    {item.emoji}
-                  </div>
+                  {/* Real uploaded photo when there is one; the coloured/emoji
+                      tile is only a fallback for seeded demo entries. */}
+                  {item.imageUrl ? (
+                    <img
+                      src={item.imageUrl}
+                      alt={item.title || 'Varahi Events'}
+                      loading="lazy"
+                      className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                    />
+                  ) : (
+                    <>
+                      <div className="absolute inset-0 transition-transform duration-500 group-hover:scale-105"
+                        style={{ background:`linear-gradient(135deg, ${item.color || '#8B1A2C'}35 0%, ${item.color || '#8B1A2C'}12 100%)`, border:`1px solid ${item.color || '#8B1A2C'}25` }}
+                      />
+                      <div className="absolute inset-0 flex items-center justify-center text-[70px] opacity-20 select-none">
+                        {item.emoji || '🎪'}
+                      </div>
+                    </>
+                  )}
 
                   {/* Hover overlay */}
                   <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
@@ -101,7 +111,7 @@ export default function Gallery() {
 
                   {/* Title */}
                   <div className="absolute bottom-0 left-0 right-0 p-3"
-                    style={{ background:`linear-gradient(to top, ${item.color}CC, transparent)` }}>
+                    style={{ background:`linear-gradient(to top, ${item.color || '#0D0508'}CC, transparent)` }}>
                     <p className="text-white text-xs font-semibold leading-tight">{item.title}</p>
                   </div>
                 </motion.div>
@@ -135,7 +145,13 @@ export default function Gallery() {
               >
                 <X size={18}/>
               </button>
-              <div className="text-8xl mb-4">{selected.emoji}</div>
+              {selected.imageUrl ? (
+                <img src={selected.imageUrl} alt={selected.title || 'Varahi Events'}
+                  className="w-full max-h-[65vh] object-contain rounded-xl mb-4"
+                  style={{ background: '#0D0508' }} />
+              ) : (
+                <div className="text-8xl mb-4">{selected.emoji || '🎪'}</div>
+              )}
               <h3 className="text-white font-bold text-xl mb-2">{selected.title}</h3>
               <span className="badge-violet capitalize">{selected.category}</span>
             </motion.div>

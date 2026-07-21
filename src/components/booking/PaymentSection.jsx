@@ -39,15 +39,18 @@ export default function PaymentSection({ bookingId }) {
   useEffect(() => {
     if (!bookingId) return
     let timer
+    let cancelled = false
     getBookingById(bookingId)
       .then(b => {
-        if (!b) return
+        // Without this guard, unmounting before the fetch resolved would leave
+        // an interval running forever (cleanup already ran with timer=undefined).
+        if (cancelled || !b) return
         const tick = () => setHoldMs(holdRemainingMs(b))
         tick()
         timer = setInterval(tick, 1000)
       })
       .catch(() => {})
-    return () => clearInterval(timer)
+    return () => { cancelled = true; clearInterval(timer) }
   }, [bookingId])
 
   const holdLabel = holdMs == null ? null : (() => {

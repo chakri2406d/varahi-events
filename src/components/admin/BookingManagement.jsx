@@ -323,7 +323,9 @@ export default function BookingManagement() {
   // ── Advance % badge ───────────────────────────────────────────────────────
   const AdvanceBadge = ({ paid, total }) => {
     if (!paid || !total) return null
-    const pct = Math.round((paid / total) * 100)
+    // Clamp: an overpayment (or a double-recorded payment) shouldn't render
+    // "142% paid" or a bar overflowing its track.
+    const pct = Math.max(0, Math.min(100, Math.round((paid / total) * 100)))
     const ok  = paid >= total * 0.4
     return (
       <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold"

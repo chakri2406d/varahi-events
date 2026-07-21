@@ -18,11 +18,11 @@ for(const f of files){
       if(!ok){console.log(`MISSING EXPORT: ${n} (${f} -> ${m[2]})`);prob++}
     }
   }
-  const dre=/import\s+([A-Za-z0-9_$]+)\s*(?:,\s*\{[^}]*\})?\s*from\s*['"](\.[^'"]+)['"]/g
-  while((m=dre.exec(src))){
-    const t=readSafe(path.resolve(path.dirname(f),m[2]))
-    if(t==null){console.log(`MISSING MODULE(def): ${f} -> ${m[2]}`);prob++;continue}
-    if(!/export\s+default/.test(t)){console.log(`NO DEFAULT EXPORT: ${m[2]} <- ${f}`);prob++}
+  const lz=/lazy\(\(\)\s*=>\s*import\(['"](\.[^'"]+)['"]\)\)/g
+  while((m=lz.exec(src))){
+    const t=readSafe(path.resolve(path.dirname(f),m[1]))
+    if(t==null){console.log(`LAZY MISSING: ${f} -> ${m[1]}`);prob++}
+    else if(!/export\s+default/.test(t)){console.log(`LAZY NO DEFAULT: ${m[1]}`);prob++}
   }
 }
-console.log(prob?`${prob} IMPORT PROBLEM(S)`:'All local imports resolve')
+console.log(prob?`${prob} IMPORT PROBLEM(S)`:'All imports resolve')

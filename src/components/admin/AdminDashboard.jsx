@@ -208,7 +208,7 @@ export default function AdminDashboard() {
               const needsAction = b.status === 'payment_pending' || b.status === 'requested'
               const paid  = Number(b.amountPaid  || 0)
               const total = Number(totalAmts[b.id] || b.totalAmount || 0)
-              const pct   = total > 0 ? Math.round((paid/total)*100) : null
+              const pct   = total > 0 ? Math.max(0, Math.min(100, Math.round((paid/total)*100))) : null
 
               return (
                 <motion.div key={b.id}

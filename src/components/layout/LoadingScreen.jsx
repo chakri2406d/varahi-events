@@ -1,6 +1,23 @@
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 
-export default function LoadingScreen({ progress = 0 }) {
+export default function LoadingScreen({ progress }) {
+  // Callers don't pass a progress value, so this used to sit frozen at "0%",
+  // which reads as a broken/hung page. Self-animate toward 90% instead and
+  // let the real value win whenever one is supplied.
+  const [auto, setAuto] = useState(8)
+
+  useEffect(() => {
+    if (progress != null) return
+    const t = setInterval(() => {
+      // Ease off as it climbs — never claims to be finished while still waiting
+      setAuto(p => (p >= 90 ? 90 : p + Math.max(1, Math.round((90 - p) / 8))))
+    }, 180)
+    return () => clearInterval(t)
+  }, [progress])
+
+  const pct = Math.round(progress ?? auto)
+
   return (
     <div className="fixed inset-0 z-[999] flex flex-col items-center justify-center"
       style={{ background: 'linear-gradient(135deg, #1A0508 0%, #0D0305 50%, #1A0A00 100%)' }}>
@@ -55,7 +72,7 @@ export default function LoadingScreen({ progress = 0 }) {
           className="h-full rounded-full"
           style={{ background: 'linear-gradient(90deg, #8B1A2C, #C9933A, #F0D9A8)' }}
           initial={{ width: '0%' }}
-          animate={{ width: `${progress}%` }}
+          animate={{ width: `${pct}%` }}
           transition={{ duration: 0.4, ease: 'easeOut' }}
         />
       </div>
@@ -67,7 +84,7 @@ export default function LoadingScreen({ progress = 0 }) {
         animate={{ opacity: [0.5, 1, 0.5] }}
         transition={{ duration: 1.5, repeat: Infinity }}
       >
-        {progress}%
+        {pct}%
       </motion.p>
     </div>
   )
