@@ -11,6 +11,7 @@ import toast from 'react-hot-toast'
 export default function QrScanner() {
   const scannerRef = useRef(null)
   const lockRef    = useRef(false)     // prevents duplicate scans of the same code
+  const mountedRef = useRef(true)      // guards setState after unmount
   const [active, setActive] = useState(false)
   const [busy,   setBusy]   = useState(false)
   const [error,  setError]  = useState('')
@@ -92,18 +93,31 @@ export default function QrScanner() {
     }
   }
 
-  const stop = async () => {
+  // Releases the camera hardware. `clearDom` is skipped on unmount: React is
+  // already removing the container, and letting html5-qrcode rewrite that DOM
+  // at the same time is what produces removeChild errors.
+  const stopScanner = async (clearDom = true) => {
     const s = scannerRef.current
-    if (s) {
-      try { await s.stop() } catch {}
-      try { await s.clear() } catch {}
-      scannerRef.current = null
-    }
-    setActive(false)
+    scannerRef.current = null
+    if (!s) return
+    try { await s.stop() } catch {}
+    if (clearDom) { try { await s.clear() } catch {} }
   }
 
-  // Clean up the camera when leaving the page
-  useEffect(() => () => { stop() }, [])
+  const stop = async () => {
+    await stopScanner(true)
+    if (mountedRef.current) setActive(false)
+  }
+
+  // Always release the camera when leaving the page, but never touch React
+  // state (or the DOM) after unmount.
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      stopScanner(false)
+    }
+  }, [])
 
   return (
     <div className="max-w-md mx-auto">
@@ -117,15 +131,23 @@ export default function QrScanner() {
       </motion.div>
 
       <div className="glass-card p-5">
-        {/* Camera viewport */}
-        <div id="qr-reader"
-          className="rounded-xl overflow-hidden mx-auto"
-          style={{ width:'100%', maxWidth:320, minHeight: active ? 'auto' : 220,
-                   border:'1px solid rgba(61,30,40,0.8)', background:'rgba(13,5,8,0.6)',
-                   display:'flex', alignItems:'center', justifyContent:'center' }}>
+        {/* Camera viewport.
+            CRITICAL: #qr-reader must stay EMPTY as far as React is concerned.
+            html5-qrcode injects and tears down its own <video>/<canvas> inside
+            this node. If React also renders children here, React's virtual DOM
+            and the real DOM disagree and unmounting throws
+            "NotFoundError: Failed to execute 'removeChild'", which crashes the
+            page. So the placeholder below is an absolutely-positioned SIBLING
+            overlay, never a child of #qr-reader. */}
+        <div className="relative rounded-xl overflow-hidden mx-auto"
+          style={{ width:'100%', maxWidth:320, minHeight:220,
+                   border:'1px solid rgba(61,30,40,0.8)', background:'rgba(13,5,8,0.6)' }}>
+          <div id="qr-reader" style={{ width:'100%' }} />
+
           {!active && (
-            <div className="text-center py-10" style={{ color:'#9C7A82' }}>
-              <Camera size={34} className="mx-auto mb-2" style={{ color:'#C9933A' }}/>
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none"
+              style={{ color:'#9C7A82' }}>
+              <Camera size={34} className="mb-2" style={{ color:'#C9933A' }}/>
               <p className="text-sm">Camera is off</p>
             </div>
           )}

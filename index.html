@@ -14,6 +14,9 @@
 
     <!-- PWA: installable app manifest + iOS home-screen support -->
     <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- Standard name first; the apple- prefixed one is deprecated but kept
+         for older iOS versions. -->
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <link rel="apple-touch-icon" href="/varahi_events.jpg" />
 

@@ -43,18 +43,19 @@ self.addEventListener('fetch', (event) => {
   const isFirebase   = NEVER_CACHE.some((t) => request.url.includes(t))
   if (!isSameOrigin || isFirebase) return
 
-  // Page navigations and any HTML: network only, never cached. This is what
-  // guarantees a fresh deploy is picked up and chunk URLs always match.
+  // Page navigations and any HTML: DON'T intercept at all. Letting the browser
+  // handle them natively guarantees a fresh deploy is always picked up, and
+  // avoids the trap below where responding with `undefined` turns the whole
+  // navigation into a network error ("Failed to convert value to 'Response'").
   const isNavigation =
     request.mode === 'navigate' ||
     (request.headers.get('accept') || '').includes('text/html')
 
-  if (isNavigation) {
-    event.respondWith(fetch(request).catch(() => caches.match('/varahi_events.jpg')))
-    return
-  }
+  if (isNavigation) return
 
   // Static assets: try network, fall back to cache when offline.
+  // respondWith MUST always resolve to a real Response — caches.match()
+  // resolves to undefined on a miss, which would throw.
   event.respondWith(
     fetch(request)
       .then((response) => {
@@ -64,6 +65,9 @@ self.addEventListener('fetch', (event) => {
         }
         return response
       })
-      .catch(() => caches.match(request))
+      .catch(async () => {
+        const cached = await caches.match(request)
+        return cached || new Response('', { status: 504, statusText: 'Offline' })
+      })
   )
 })
